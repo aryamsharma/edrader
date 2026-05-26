@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+htmlcov/
+coverage/
+.coverage
+.coverage.*
+.pytest_cache/
+
+# Type checking
+.mypy_cache/
+.stub_cache/
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Config overrides
+configs/local.yaml
+configs/*.local.yaml
+
+# Environment
+.env
+.env.*
+
+# Poetry
+poetry.lock
