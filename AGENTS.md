@@ -29,6 +29,7 @@ Order: `ruff check -> ruff format -> mypy -> pytest`.
 - **`MarketDataFeed`** (`broker/market_data.py`) manages tick subscriptions via `ib_insync`, publishes `MarketTickEvent`, aggregates `BarCloseEvent` per symbol, auto re-subscribes on `BrokerReconnectedEvent`
 - **`DatabaseManager`** (`persistence/database.py`) provides centralized SQLAlchemy engine, session lifecycle, and `init_db()`/`close()` for domain tables
 - **Persistence Models** (`persistence/models.py`): `OrderRecord`, `FillRecord`, `PositionRecord`, `PnlSnapshotRecord`; Alembic migrations in `migrations/`
+- **`PositionManager`** (`portfolio/position.py`) subscribes to `OrderFilledEvent`/`MarketTickEvent`, tracks positions with avg cost and realized/unrealized PnL, emits `PositionOpenedEvent`/`PositionClosedEvent`/`PnLUpdatedEvent`/`PositionUpdate`, computes exposure and leverage; optional `DatabaseManager` persistence
 
 ## Implementation Status
 
@@ -40,9 +41,10 @@ Order: `ruff check -> ruff format -> mypy -> pytest`.
 | P2.2 — Market Data Feed (`MarketDataFeed`) | ✅ |
 | P2.3 — Order Connectivity (`BrokerAdapter`) | ✅ |
 | P3.1 — Persistence Infrastructure (`DatabaseManager`, models, Alembic) | ✅ |
-| P3.2–P10 — Portfolio, Strategies, Risk, Execution, Replay, Monitoring | ⏳ |
+| P4.1 — Portfolio Engine (`PositionManager`) | ✅ |
+| P4.2–P10 — Exposure, Strategies, Risk, Execution, Replay, Monitoring | ⏳ |
 
-177 tests passing across 11 test files. Detailed docs at `docs/design.md`, `docs/implementation_plan.md`, `docs/status.md`.
+214 tests passing across 12 test files. Detailed docs at `docs/design.md`, `docs/implementation_plan.md`, `docs/status.md`.
 
 ## Test Conventions
 
