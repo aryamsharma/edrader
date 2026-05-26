@@ -32,6 +32,14 @@ class MonitoringConfig(BaseModel):
     metrics_port: int = 9090
 
 
+class ExecutionConfig(BaseModel):
+    sizing_method: str = "fixed"
+    percent_equity_fraction: float = 0.02
+    default_order_type: str = "MKT"
+    max_retries: int = 3
+    throttle_delay: float = 0.5
+
+
 class AppConfig(BaseModel):
     name: str = "trading-platform"
     environment: Literal["development", "paper", "live"] = "development"
@@ -44,6 +52,7 @@ class TradingConfig(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
     persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
 
 
 def load_config(path: Path) -> TradingConfig:

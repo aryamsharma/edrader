@@ -9,8 +9,8 @@ from trading_platform.events.event_types import (
     BrokerDisconnectedEvent,
     MarketTickEvent,
     OrderFilledEvent,
-    OrderRequestedEvent,
     RiskViolationEvent,
+    SignalApprovedEvent,
     SignalGeneratedEvent,
     SignalRejectedEvent,
     TradingHaltedEvent,
@@ -227,11 +227,12 @@ class RiskEngine:
 
     async def _approve(self, event: SignalGeneratedEvent) -> None:
         await self._event_bus.publish(
-            OrderRequestedEvent(
+            SignalApprovedEvent(
+                strategy_id=event.strategy_id,
                 symbol=event.symbol,
                 side=event.side,
-                quantity=event.suggested_size,
-                order_type="MKT",
+                confidence=event.confidence,
+                suggested_size=event.suggested_size,
                 source="risk_engine",
             )
         )

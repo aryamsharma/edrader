@@ -7,8 +7,8 @@ from trading_platform.events.event_types import (
     BrokerDisconnectedEvent,
     MarketTickEvent,
     OrderFilledEvent,
-    OrderRequestedEvent,
     RiskViolationEvent,
+    SignalApprovedEvent,
     SignalGeneratedEvent,
     SignalRejectedEvent,
     TradingHaltedEvent,
@@ -117,7 +117,7 @@ class TestRiskEngineKillSwitch:
         assert len(rejected) >= 1
         assert "kill_switch" in rejected[0].reason
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
+        ordered = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
         assert len(ordered) == 0
 
 
@@ -138,11 +138,11 @@ class TestRiskEngineSignalApproval:
         )
         await event_bus.drain()
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
-        assert len(ordered) >= 1
-        assert ordered[0].symbol == "AAPL"
-        assert ordered[0].side == "BUY"
-        assert ordered[0].quantity == 100
+        approved = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
+        assert len(approved) >= 1
+        assert approved[0].symbol == "AAPL"
+        assert approved[0].side == "BUY"
+        assert approved[0].suggested_size == 100
 
         rejected = [e for e in collected_events if isinstance(e, SignalRejectedEvent)]
         assert len(rejected) == 0
@@ -160,8 +160,8 @@ class TestRiskEngineSignalApproval:
             )
         )
         await event_bus.drain()
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
-        assert len(ordered) == 0
+        approved = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
+        assert len(approved) == 0
 
 
 class TestRiskEngineMaxPositionSize:
@@ -204,8 +204,8 @@ class TestRiskEngineMaxPositionSize:
         )
         await event_bus.drain()
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
-        assert len(ordered) >= 1
+        approved = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
+        assert len(approved) >= 1
 
 
 class TestRiskEngineDailyLoss:
@@ -249,8 +249,8 @@ class TestRiskEngineDailyLoss:
         )
         await event_bus.drain()
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
-        assert len(ordered) >= 1
+        approved = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
+        assert len(approved) >= 1
         rejected = [e for e in collected_events if isinstance(e, SignalRejectedEvent)]
         assert len(rejected) == 0
 
@@ -271,8 +271,8 @@ class TestRiskEngineDailyLoss:
         )
         await event_bus.drain()
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
-        assert len(ordered) >= 1
+        approved = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
+        assert len(approved) >= 1
 
 
 class TestRiskEngineMaxLeverage:
@@ -313,8 +313,8 @@ class TestRiskEngineMaxLeverage:
         )
         await event_bus.drain()
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
-        assert len(ordered) >= 1
+        approved = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
+        assert len(approved) >= 1
 
     async def test_no_equity_rejects(
         self, engine: RiskEngine, collected_events: list, event_bus: EventBus
@@ -387,7 +387,7 @@ class TestRiskEngineConcurrentPositions:
         )
         await event_bus.drain()
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
+        ordered = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
         assert len(ordered) >= 1
 
 
@@ -434,7 +434,7 @@ class TestRiskEngineStaleMarket:
         )
         await event_bus.drain()
 
-        ordered = [e for e in collected_events if isinstance(e, OrderRequestedEvent)]
+        ordered = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
         assert len(ordered) >= 1
 
 
@@ -591,7 +591,7 @@ class TestRiskEngineCustomConfig:
         )
         await event_bus.drain()
 
-        ordered = [c for c in collected if isinstance(c, OrderRequestedEvent)]
+        ordered = [c for c in collected if isinstance(c, SignalApprovedEvent)]
         assert len(ordered) >= 1
         await e.stop()
 

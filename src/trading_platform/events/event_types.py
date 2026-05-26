@@ -98,6 +98,15 @@ class SignalGeneratedEvent(BaseEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class SignalApprovedEvent(BaseEvent):
+    strategy_id: str = ""
+    symbol: str = ""
+    side: str = ""
+    confidence: float = 0.0
+    suggested_size: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class SignalRejectedEvent(BaseEvent):
     strategy_id: str = ""
     symbol: str = ""
