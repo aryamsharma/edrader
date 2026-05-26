@@ -27,6 +27,8 @@ Order: `ruff check -> ruff format -> mypy -> pytest`.
 - **Strategies emit signals only** — they never place orders, call IBKR, or manage positions.
 - Same code path runs live and in backtest; only the data source/clock changes.
 - **`MarketDataFeed`** (`broker/market_data.py`) manages tick subscriptions via `ib_insync`, publishes `MarketTickEvent`, aggregates `BarCloseEvent` per symbol, auto re-subscribes on `BrokerReconnectedEvent`
+- **`DatabaseManager`** (`persistence/database.py`) provides centralized SQLAlchemy engine, session lifecycle, and `init_db()`/`close()` for domain tables
+- **Persistence Models** (`persistence/models.py`): `OrderRecord`, `FillRecord`, `PositionRecord`, `PnlSnapshotRecord`; Alembic migrations in `migrations/`
 
 ## Implementation Status
 
@@ -36,10 +38,11 @@ Order: `ruff check -> ruff format -> mypy -> pytest`.
 | P1 — Event Infrastructure (types, bus, journal) | ✅ |
 | P2.1 — Connection Manager (`IBKRClient`) | ✅ |
 | P2.2 — Market Data Feed (`MarketDataFeed`) | ✅ |
-| P2.3 — Order Connectivity | ⏳ |
-| P3-P10 — Persistence, Portfolio, Strategies, Risk, Execution, Replay, Monitoring | ⏳ |
+| P2.3 — Order Connectivity (`BrokerAdapter`) | ✅ |
+| P3.1 — Persistence Infrastructure (`DatabaseManager`, models, Alembic) | ✅ |
+| P3.2–P10 — Portfolio, Strategies, Risk, Execution, Replay, Monitoring | ⏳ |
 
-127 tests passing across 9 test files. Detailed docs at `docs/design.md`, `docs/implementation_plan.md`, `docs/status.md`.
+177 tests passing across 11 test files. Detailed docs at `docs/design.md`, `docs/implementation_plan.md`, `docs/status.md`.
 
 ## Test Conventions
 
