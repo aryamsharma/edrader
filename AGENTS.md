@@ -30,6 +30,7 @@ Order: `ruff check -> ruff format -> mypy -> pytest`.
 - **`DatabaseManager`** (`persistence/database.py`) provides centralized SQLAlchemy engine, session lifecycle, and `init_db()`/`close()` for domain tables
 - **Persistence Models** (`persistence/models.py`): `OrderRecord`, `FillRecord`, `PositionRecord`, `PnlSnapshotRecord`; Alembic migrations in `migrations/`
 - **`PositionManager`** (`portfolio/position.py`) subscribes to `OrderFilledEvent`/`MarketTickEvent`, tracks positions with avg cost and realized/unrealized PnL, emits `PositionOpenedEvent`/`PositionClosedEvent`/`PnLUpdatedEvent`/`PositionUpdate`, computes exposure and leverage; optional `DatabaseManager` persistence
+- **Strategies emit signals only** — they never place orders, call IBKR, or manage positions.
 
 ## Implementation Status
 
@@ -42,9 +43,10 @@ Order: `ruff check -> ruff format -> mypy -> pytest`.
 | P2.3 — Order Connectivity (`BrokerAdapter`) | ✅ |
 | P3.1 — Persistence Infrastructure (`DatabaseManager`, models, Alembic) | ✅ |
 | P4.1 — Portfolio Engine (`PositionManager`) | ✅ |
-| P4.2–P10 — Exposure, Strategies, Risk, Execution, Replay, Monitoring | ⏳ |
+| P5.1 — Strategy Framework (base, loader, SMA crossover, mean reversion) | ✅ |
+| P5.2–P10 — Risk, Execution, Replay, Monitoring | ⏳ |
 
-214 tests passing across 12 test files. Detailed docs at `docs/design.md`, `docs/implementation_plan.md`, `docs/status.md`.
+242 tests passing across 14 test files. Detailed docs at `docs/design.md`, `docs/implementation_plan.md`, `docs/status.md`.
 
 ## Test Conventions
 
