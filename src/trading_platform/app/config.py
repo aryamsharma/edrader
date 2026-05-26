@@ -10,7 +10,7 @@ class BrokerConfig(BaseModel):
     port: int = 4001
     client_id: int = 1
     connect_timeout: int = 30
-    reconnect_interval: int = 5
+    reconnect_interval: float = 5.0
     max_reconnect_attempts: int = 10
 
 

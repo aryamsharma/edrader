@@ -200,3 +200,6 @@ class EventBus:
 
     def subscriber_count_for(self, event_type: type[BaseEvent]) -> int:
         return len(self._subscribers.get(event_type, []))
+
+    async def drain(self) -> None:
+        await self._queue.join()

@@ -39,11 +39,11 @@
 
 ---
 
-## Phase 2 — IBKR Connectivity ⏳
+## Phase 2 — IBKR Connectivity 🔄
 
 | Task | Status | Notes |
 |---|---|---|
-| Connection manager | ⏳ | Not started |
+| Connection manager | ✅ | Async connect/disconnect, heartbeat, reconnect with backoff |
 | Market data feed | ⏳ | Not started |
 | Broker adapter | ⏳ | Not started |
 | Order connectivity | ⏳ | Not started |
@@ -149,7 +149,8 @@
 | Event types | 30 | ✅ |
 | Event bus | 14 | ✅ |
 | Event journal | 11 | ✅ |
-| **Total** | **77** | **✅ All passing** |
+| IBKR client | 27 | ✅ |
+| **Total** | **104** | **✅ All passing** |
 
 ## Code Quality
 
@@ -157,5 +158,5 @@
 |---|---|
 | ruff lint | ✅ 0 errors |
 | ruff format | ✅ 26 files formatted |
-| mypy (strict) | ✅ 0 errors (18 source files) |
+| mypy (strict) | ✅ 0 errors (19 source files) |
 | Git | ✅ 3 commits on main |
