@@ -5,6 +5,7 @@ import pytest
 from trading_platform.events.bus import EventBus
 from trading_platform.events.event_types import (
     BrokerDisconnectedEvent,
+    ExposureUpdatedEvent,
     MarketTickEvent,
     OrderFilledEvent,
     RiskViolationEvent,
@@ -606,3 +607,46 @@ class TestRiskEngineCustomConfig:
         engine._daily_realized_pnl = -500.0
         engine.reset_daily_pnl()
         assert engine.daily_realized_pnl == 0.0
+
+
+class TestRiskEngineExposureUpdate:
+    async def test_subscribes_to_exposure_updates(
+        self, engine: RiskEngine, event_bus: EventBus
+    ) -> None:
+        assert engine.is_running is True
+        assert event_bus.subscriber_count_for(ExposureUpdatedEvent) >= 1
+
+    async def test_auto_updates_exposure_and_equity(
+        self, engine: RiskEngine, event_bus: EventBus
+    ) -> None:
+        await event_bus.publish(
+            ExposureUpdatedEvent(
+                gross_exposure=50_000.0,
+                net_exposure=30_000.0,
+                leverage=0.5,
+                long_count=1,
+                short_count=0,
+                equity=100_000.0,
+                source="test",
+            )
+        )
+        await event_bus.drain()
+        assert engine._exposure == 50_000.0
+        assert engine._equity == 100_000.0
+
+    async def test_auto_update_before_start_ignored(self, event_bus: EventBus) -> None:
+        e = RiskEngine(event_bus=event_bus)
+        await event_bus.publish(
+            ExposureUpdatedEvent(
+                gross_exposure=50_000.0,
+                net_exposure=30_000.0,
+                leverage=0.5,
+                long_count=1,
+                short_count=0,
+                equity=100_000.0,
+                source="test",
+            )
+        )
+        await event_bus.drain()
+        assert e._exposure == 0.0
+        assert e._equity == 100_000.0

@@ -4,6 +4,8 @@ import pytest
 
 from trading_platform.events.bus import EventBus
 from trading_platform.events.event_types import (
+    ExposureLimitEvent,
+    ExposureUpdatedEvent,
     MarketTickEvent,
     OrderFilledEvent,
     PnLUpdatedEvent,
@@ -777,3 +779,100 @@ class TestPositionManagerPersistence:
         pos = manager.positions.get("AAPL")
         assert pos is not None
         assert pos.quantity == 100
+
+
+@pytest.mark.usefixtures("manager")
+class TestPositionManagerExposureEvents:
+    async def test_exposure_updated_emitted_on_fill(
+        self, collected_events: list, event_bus: EventBus
+    ) -> None:
+        await event_bus.publish(
+            OrderFilledEvent(
+                order_id="1",
+                symbol="AAPL",
+                side="BUY",
+                fill_price=150.0,
+                fill_quantity=100,
+                source="test",
+            )
+        )
+        await event_bus.drain()
+
+        exposure_events = [e for e in collected_events if isinstance(e, ExposureUpdatedEvent)]
+        assert len(exposure_events) >= 1
+        latest = exposure_events[-1]
+        assert latest.gross_exposure == pytest.approx(150.0 * 100)
+        assert latest.net_exposure == pytest.approx(150.0 * 100)
+        assert latest.leverage == pytest.approx((150.0 * 100) / 100_000.0)
+        assert latest.long_count == 1
+        assert latest.short_count == 0
+        assert latest.equity == pytest.approx(100_000.0)
+
+    async def test_exposure_updated_emitted_on_tick(
+        self, collected_events: list, event_bus: EventBus
+    ) -> None:
+        await event_bus.publish(
+            OrderFilledEvent(
+                order_id="1",
+                symbol="AAPL",
+                side="BUY",
+                fill_price=150.0,
+                fill_quantity=100,
+                source="test",
+            )
+        )
+        await event_bus.publish(MarketTickEvent(symbol="AAPL", price=160.0, source="test"))
+        await event_bus.drain()
+
+        exposure_events = [e for e in collected_events if isinstance(e, ExposureUpdatedEvent)]
+        gross_target = 160.0 * 100
+        tick_exposure = [
+            e for e in exposure_events if e.gross_exposure == pytest.approx(gross_target)
+        ]
+        assert len(tick_exposure) >= 1
+
+    async def test_exposure_limit_event_when_symbol_exceeds_limit(
+        self, event_bus: EventBus, collected_events: list
+    ) -> None:
+        m = PositionManager(event_bus=event_bus, max_symbol_exposure=10_000.0)
+        await m.start()
+
+        await event_bus.publish(
+            OrderFilledEvent(
+                order_id="1",
+                symbol="AAPL",
+                side="BUY",
+                fill_price=150.0,
+                fill_quantity=100,
+                source="test",
+            )
+        )
+        await event_bus.drain()
+        await m.stop()
+
+        limit_events = [e for e in collected_events if isinstance(e, ExposureLimitEvent)]
+        assert len(limit_events) >= 1
+        assert limit_events[-1].current_exposure == pytest.approx(150.0 * 100)
+        assert limit_events[-1].limit == 10_000.0
+
+    async def test_no_exposure_limit_event_below_threshold(
+        self, event_bus: EventBus, collected_events: list
+    ) -> None:
+        m = PositionManager(event_bus=event_bus, max_symbol_exposure=1_000_000.0)
+        await m.start()
+
+        await event_bus.publish(
+            OrderFilledEvent(
+                order_id="1",
+                symbol="AAPL",
+                side="BUY",
+                fill_price=150.0,
+                fill_quantity=100,
+                source="test",
+            )
+        )
+        await event_bus.drain()
+        await m.stop()
+
+        limit_events = [e for e in collected_events if isinstance(e, ExposureLimitEvent)]
+        assert len(limit_events) == 0

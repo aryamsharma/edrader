@@ -6,6 +6,8 @@ from typing import Any
 from trading_platform.events.bus import EventBus
 from trading_platform.events.event_types import (
     BaseEvent,
+    ExposureLimitEvent,
+    ExposureUpdatedEvent,
     MarketTickEvent,
     OrderFilledEvent,
     PnLUpdatedEvent,
@@ -40,10 +42,12 @@ class PositionManager:
         event_bus: EventBus,
         db_manager: Any | None = None,
         initial_capital: float = 100_000.0,
+        max_symbol_exposure: float | None = None,
     ) -> None:
         self._event_bus = event_bus
         self._db_manager = db_manager
         self._initial_capital = initial_capital
+        self._max_symbol_exposure = max_symbol_exposure
         self._positions: dict[str, Position] = {}
         self._market_prices: dict[str, float] = {}
         self._running = False
@@ -174,6 +178,37 @@ class PositionManager:
             realized_pnl=pos.realized_pnl,
         )
 
+        await self._publish_exposure()
+
+    async def _publish_exposure(self) -> None:
+        snap = self.exposure()
+        lev = self.leverage
+        eq = self.equity
+        await self._event_bus.publish(
+            ExposureUpdatedEvent(
+                gross_exposure=snap.gross_exposure,
+                net_exposure=snap.net_exposure,
+                leverage=lev,
+                long_count=snap.long_count,
+                short_count=snap.short_count,
+                equity=eq,
+                source="position_manager",
+            )
+        )
+
+        if self._max_symbol_exposure is not None and self._max_symbol_exposure > 0:
+            for sym, pos in self._positions.items():
+                price = self._market_prices.get(sym, pos.avg_cost)
+                value = price * abs(pos.quantity)
+                if value > self._max_symbol_exposure:
+                    await self._event_bus.publish(
+                        ExposureLimitEvent(
+                            current_exposure=value,
+                            limit=self._max_symbol_exposure,
+                            source="position_manager",
+                        )
+                    )
+
     def _update_position(self, symbol: str, side: str, fill_qty: int, fill_price: float) -> None:
         if symbol not in self._positions:
             self._positions[symbol] = Position(symbol=symbol)
@@ -264,6 +299,7 @@ class PositionManager:
                     source="position_manager",
                 )
             )
+            await self._publish_exposure()
 
     def _persist_position(self, symbol: str) -> None:
         if self._db_manager is None:

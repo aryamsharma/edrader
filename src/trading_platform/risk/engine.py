@@ -7,6 +7,7 @@ from trading_platform.events.bus import EventBus
 from trading_platform.events.event_types import (
     BaseEvent,
     BrokerDisconnectedEvent,
+    ExposureUpdatedEvent,
     MarketTickEvent,
     OrderFilledEvent,
     RiskViolationEvent,
@@ -49,6 +50,7 @@ class RiskEngine:
         self._fill_unsub: Any = None
         self._tick_unsub: Any = None
         self._disconnect_unsub: Any = None
+        self._exposure_unsub: Any = None
 
     @property
     def is_running(self) -> bool:
@@ -70,6 +72,7 @@ class RiskEngine:
         self._fill_unsub = await self._subscribe_fills()
         self._tick_unsub = await self._subscribe_ticks()
         self._disconnect_unsub = await self._subscribe_disconnects()
+        self._exposure_unsub = await self._subscribe_exposure()
         logger.info("risk_engine_started")
 
     async def stop(self) -> None:
@@ -81,6 +84,7 @@ class RiskEngine:
             self._fill_unsub,
             self._tick_unsub,
             self._disconnect_unsub,
+            self._exposure_unsub,
         ):
             if unsub is not None:
                 unsub()
@@ -88,6 +92,7 @@ class RiskEngine:
         self._fill_unsub = None
         self._tick_unsub = None
         self._disconnect_unsub = None
+        self._exposure_unsub = None
         logger.info("risk_engine_stopped")
 
     def activate_kill_switch(self) -> None:
@@ -168,6 +173,13 @@ class RiskEngine:
         if not self._running:
             return
         self._last_tick_time[event.symbol] = event.timestamp
+
+    async def _on_exposure_update(self, event: BaseEvent) -> None:
+        assert isinstance(event, ExposureUpdatedEvent)
+        if not self._running:
+            return
+        self._exposure = event.gross_exposure
+        self._equity = event.equity
 
     async def _on_disconnect(self, event: BaseEvent) -> None:
         assert isinstance(event, BrokerDisconnectedEvent)
@@ -287,3 +299,10 @@ class RiskEngine:
 
         self._event_bus.subscribe(BrokerDisconnectedEvent, handler, name="risk_engine_disconnect")
         return lambda: self._event_bus.unsubscribe(BrokerDisconnectedEvent, handler)
+
+    async def _subscribe_exposure(self) -> Any:
+        async def handler(event: BaseEvent) -> None:
+            await self._on_exposure_update(event)
+
+        self._event_bus.subscribe(ExposureUpdatedEvent, handler, name="risk_engine_exposure")
+        return lambda: self._event_bus.unsubscribe(ExposureUpdatedEvent, handler)

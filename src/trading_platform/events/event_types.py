@@ -138,6 +138,16 @@ class ExposureLimitEvent(BaseEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class ExposureUpdatedEvent(BaseEvent):
+    gross_exposure: float = 0.0
+    net_exposure: float = 0.0
+    leverage: float = 0.0
+    long_count: int = 0
+    short_count: int = 0
+    equity: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class OrderRequestedEvent(BaseEvent):
     symbol: str = ""
     side: str = ""
