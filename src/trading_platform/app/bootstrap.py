@@ -92,9 +92,6 @@ class Application:
         self._strategy_loader.register("mean_reversion", MeanReversionStrategy)
 
     async def _start_strategies(self) -> None:
-        env = self.config.app.environment
-        if env == "development":
-            return
         sma = self._strategy_loader.create(
             "sma_crossover", event_bus=self.event_bus, default_size=100
         )
@@ -128,10 +125,10 @@ class Application:
             live = self._build_live_components()
             self._components[LIVE_COMPONENTS] = live
             await self._start_components(live)
-
-        sim = self._build_simulated_components()
-        self._components[SIMULATED_COMPONENTS] = sim
-        await self._start_components(sim)
+        else:
+            sim = self._build_simulated_components()
+            self._components[SIMULATED_COMPONENTS] = sim
+            await self._start_components(sim)
 
         monitoring = self._build_monitoring_components()
         self._components[MONITORING_COMPONENTS] = monitoring
