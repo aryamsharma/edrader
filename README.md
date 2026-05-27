@@ -116,6 +116,81 @@ src/edrader/
 
 Event-driven: strategies emit signals → risk engine validates → execution engine places orders → broker adapter sends to IBKR → position manager tracks fills. See `.agents/summary/` for full documentation (architecture, components, interfaces, workflows).
 
+## Web UI
+
+### Recommended Approach: In-Process FastAPI + WebSocket Bridge
+
+Embed a lightweight HTTP/WS server in the same process as the trading engine. The existing `EventBus.subscribe_all()` method already delivers every event in real-time — a WebSocket bridge is the only new code needed.
+
+```
+Browser (React / Svelte / vanilla JS)
+    ↕ WebSocket (JSON events)
+FastAPI server (added to Application.startup())
+    ├── WS /events      → subscribe_all → push JSON to browser
+    ├── GET /positions   → PositionManager.positions
+    ├── GET /exposure    → PositionManager.exposure()
+    ├── GET /metrics     → MetricsCollector runtime snapshots
+    ├── POST /order      → publish OrderRequestedEvent
+    └── POST /strategy   → load / start / stop strategies
+EventBus ←→ All Components (existing)
+```
+
+### Why This Works
+
+| Feature | How It's Already Ready |
+|---|---|
+| **Real-time event stream** | `EventBus.subscribe_all()` + 27 event types with `to_dict()` == instant WebSocket feed |
+| **State queries** | `PositionManager`, `MetricsCollector`, `RiskEngine` are all queryable Python objects in the same process |
+| **Order placement** | Publishing `OrderRequestedEvent` from a REST handler takes one line |
+| **Strategy lifecycle** | `StrategyLoader.create()` + `strategy.start()` / `strategy.stop()` are already async |
+| **Zero new instrumentation** | The journal already logs everything; the bus already dispatches everything |
+
+### Alternatives Considered
+
+| Approach | When to Consider |
+|---|---|
+| **Sidecar process** (separate FastAPI + Redis pub/sub) | If trading loop CPU usage is consistently >80% and UI responsiveness matters more than simplicity |
+| **Grafana + Prometheus** | Read-only monitoring dashboards — MetricsCollector already emits structured data. Add `prometheus-client` export and point Grafana at it. |
+| **Electron / Tauri desktop** | If you need local IB Gateway bundling or offline capability. Significantly more build complexity. |
+| **CLI / TUI only** | For headless/server deployments. The app already runs fully without a UI. |
+
+### Dependency Changes
+
+Add to `pyproject.toml`:
+
+```
+fastapi = "^0.115"
+uvicorn = {version = "^0.32", extras = ["standard"]}
+websockets = "^14"
+```
+
+### Minimal Implementation Sketch
+
+A new `src/edrader/web/server.py` with an async lifespan that registers routes, and a few lines in `Application.startup()`:
+
+```python
+async def startup(self) -> None:
+    ...
+    self._web = WebServer(self.event_bus, self)
+    await self._web.start()  # launches uvicorn in a task
+```
+
+The WebSocket bridge handler:
+
+```python
+@router.websocket("/events")
+async def event_stream(ws: WebSocket) -> None:
+    await ws.accept()
+    async def push(event: BaseEvent) -> None:
+        await ws.send_json(event.to_dict())
+    unsub = event_bus.subscribe_all(push)
+    try:
+        while True:
+            await ws.receive_text()  # keepalive
+    except WebSocketDisconnect:
+        unsub()
+```
+
 ## Architecture Rationale
 
 ### Why Event-Driven Modular Monolith?
