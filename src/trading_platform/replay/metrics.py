@@ -95,17 +95,13 @@ class MetricsEngine:
 
         total_return = (end_eq - start_eq) / start_eq if start_eq > 0 else 0.0
 
-        total_seconds = (
-            self._equity_curve[-1][0] - self._equity_curve[0][0]
-        ).total_seconds()
+        total_seconds = (self._equity_curve[-1][0] - self._equity_curve[0][0]).total_seconds()
         years = total_seconds / (365.25 * 86400)
         annualized_return = self._compute_annualized_return(total_return, years)
 
         max_dd = self._compute_max_drawdown()
 
-        avg_equity = (
-            sum(eq for _, eq in self._equity_curve) / len(self._equity_curve)
-        )
+        avg_equity = sum(eq for _, eq in self._equity_curve) / len(self._equity_curve)
         turnover = self._total_traded_value / avg_equity if avg_equity > 0 else 0.0
 
         sharpe = self._compute_sharpe(years)
@@ -201,25 +197,19 @@ class MetricsEngine:
         async def handler(event: BaseEvent) -> None:
             await self._on_exposure(event)
 
-        self._event_bus.subscribe(
-            ExposureUpdatedEvent, handler, name="metrics_engine_exposure"
-        )
+        self._event_bus.subscribe(ExposureUpdatedEvent, handler, name="metrics_engine_exposure")
         return lambda: self._event_bus.unsubscribe(ExposureUpdatedEvent, handler)
 
     async def _subscribe_fills(self) -> Any:
         async def handler(event: BaseEvent) -> None:
             await self._on_fill(event)
 
-        self._event_bus.subscribe(
-            OrderFilledEvent, handler, name="metrics_engine_fill"
-        )
+        self._event_bus.subscribe(OrderFilledEvent, handler, name="metrics_engine_fill")
         return lambda: self._event_bus.unsubscribe(OrderFilledEvent, handler)
 
     async def _subscribe_closes(self) -> Any:
         async def handler(event: BaseEvent) -> None:
             await self._on_close(event)
 
-        self._event_bus.subscribe(
-            PositionClosedEvent, handler, name="metrics_engine_close"
-        )
+        self._event_bus.subscribe(PositionClosedEvent, handler, name="metrics_engine_close")
         return lambda: self._event_bus.unsubscribe(PositionClosedEvent, handler)

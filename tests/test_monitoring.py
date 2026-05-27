@@ -97,8 +97,12 @@ class TestMetricsCollector:
 
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
                 source="test",
             )
         )
@@ -206,9 +210,7 @@ class TestAlertManager:
         await manager.start()
 
         await event_bus.publish(
-            SignalRejectedEvent(
-                strategy_id="strat1", reason="kill_switch", source="test"
-            )
+            SignalRejectedEvent(strategy_id="strat1", reason="kill_switch", source="test")
         )
         await event_bus.drain()
 
@@ -256,9 +258,7 @@ class TestAlertManager:
         await manager.start()
 
         await event_bus.publish(BrokerDisconnectedEvent(reason="lost", source="test"))
-        await event_bus.publish(
-            TradingHaltedEvent(reason="kill_switch", source="test")
-        )
+        await event_bus.publish(TradingHaltedEvent(reason="kill_switch", source="test"))
         await event_bus.drain()
 
         alerts = [e for e in collected_events if isinstance(e, AlertEvent)]
@@ -267,9 +267,7 @@ class TestAlertManager:
 
     async def test_no_alerts_before_start(self, event_bus: EventBus) -> None:
         manager = AlertManager(event_bus=event_bus, cooldown_seconds=0)
-        await event_bus.publish(
-            BrokerDisconnectedEvent(reason="connection_lost", source="test")
-        )
+        await event_bus.publish(BrokerDisconnectedEvent(reason="connection_lost", source="test"))
         await event_bus.drain()
         assert len(manager._last_alert_time) == 0
 
@@ -284,9 +282,7 @@ class TestAlertManager:
         assert event.message == "test message"
         assert event.severity == "CRITICAL"
 
-    async def test_heartbeat_resets_alert(
-        self, event_bus: EventBus
-    ) -> None:
+    async def test_heartbeat_resets_alert(self, event_bus: EventBus) -> None:
         manager = AlertManager(
             event_bus=event_bus,
             cooldown_seconds=0,

@@ -76,17 +76,23 @@ class TestMetricsEngineLifecycle:
         assert engine.is_running is False
 
     async def test_subscribes_to_exposure_updates(
-        self, engine: MetricsEngine, event_bus: EventBus  # noqa: ARG002
+        self,
+        engine: MetricsEngine,
+        event_bus: EventBus,  # noqa: ARG002
     ) -> None:
         assert event_bus.subscriber_count_for(ExposureUpdatedEvent) >= 1
 
     async def test_subscribes_to_fills(
-        self, engine: MetricsEngine, event_bus: EventBus  # noqa: ARG002
+        self,
+        engine: MetricsEngine,
+        event_bus: EventBus,  # noqa: ARG002
     ) -> None:
         assert event_bus.subscriber_count_for(OrderFilledEvent) >= 1
 
     async def test_subscribes_to_position_closes(
-        self, engine: MetricsEngine, event_bus: EventBus  # noqa: ARG002
+        self,
+        engine: MetricsEngine,
+        event_bus: EventBus,  # noqa: ARG002
     ) -> None:
         assert event_bus.subscriber_count_for(PositionClosedEvent) >= 1
 
@@ -134,9 +140,7 @@ class TestMetricsEngineEquityTracking:
         assert len(engine._equity_curve) == 5
         assert engine._equity_curve[-1][1] == 104_000.0
 
-    async def test_ignores_exposure_before_start(
-        self, event_bus: EventBus
-    ) -> None:
+    async def test_ignores_exposure_before_start(self, event_bus: EventBus) -> None:
         e = MetricsEngine(event_bus=event_bus)
         await event_bus.publish(
             ExposureUpdatedEvent(
@@ -158,16 +162,26 @@ class TestMetricsEngineTotalReturn:
     async def test_positive_return(self, engine: MetricsEngine, event_bus: EventBus) -> None:
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=_ts(0), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=_ts(0),
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=110_000.0,
-                timestamp=_ts(1), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=110_000.0,
+                timestamp=_ts(1),
+                source="test",
             )
         )
         await event_bus.drain()
@@ -178,16 +192,26 @@ class TestMetricsEngineTotalReturn:
     async def test_negative_return(self, engine: MetricsEngine, event_bus: EventBus) -> None:
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=_ts(0), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=_ts(0),
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=90_000.0,
-                timestamp=_ts(1), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=90_000.0,
+                timestamp=_ts(1),
+                source="test",
             )
         )
         await event_bus.drain()
@@ -198,16 +222,26 @@ class TestMetricsEngineTotalReturn:
     async def test_zero_return(self, engine: MetricsEngine, event_bus: EventBus) -> None:
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=_ts(0), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=_ts(0),
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=_ts(1), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=_ts(1),
+                source="test",
             )
         )
         await event_bus.drain()
@@ -224,16 +258,26 @@ class TestMetricsEngineAnnualizedReturn:
         ts1 = ts0 + timedelta(days=365)
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=ts0, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=ts0,
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=110_000.0,
-                timestamp=ts1, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=110_000.0,
+                timestamp=ts1,
+                source="test",
             )
         )
         await event_bus.drain()
@@ -248,16 +292,26 @@ class TestMetricsEngineAnnualizedReturn:
         ts1 = ts0 + timedelta(days=182)
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=ts0, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=ts0,
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=110_000.0,
-                timestamp=ts1, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=110_000.0,
+                timestamp=ts1,
+                source="test",
             )
         )
         await event_bus.drain()
@@ -294,9 +348,7 @@ class TestMetricsEngineWinRate:
         assert metrics.winning_trades == 0
         assert metrics.losing_trades == 3
 
-    async def test_mixed_wins_and_losses(
-        self, engine: MetricsEngine, event_bus: EventBus
-    ) -> None:
+    async def test_mixed_wins_and_losses(self, engine: MetricsEngine, event_bus: EventBus) -> None:
         for pnl in [100.0, -50.0, 200.0, -30.0, 10.0]:
             await event_bus.publish(
                 PositionClosedEvent(symbol="AAPL", realized_pnl=pnl, source="test")
@@ -312,9 +364,7 @@ class TestMetricsEngineWinRate:
     async def test_zero_pnl_not_counted_as_win_or_loss(
         self, engine: MetricsEngine, event_bus: EventBus
     ) -> None:
-        await event_bus.publish(
-            PositionClosedEvent(symbol="AAPL", realized_pnl=0.0, source="test")
-        )
+        await event_bus.publish(PositionClosedEvent(symbol="AAPL", realized_pnl=0.0, source="test"))
         await event_bus.drain()
 
         metrics = engine.compute()
@@ -330,10 +380,14 @@ class TestMetricsEngineMaxDrawdown:
         for i in range(5):
             await event_bus.publish(
                 ExposureUpdatedEvent(
-                    gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                    long_count=0, short_count=0,
+                    gross_exposure=0.0,
+                    net_exposure=0.0,
+                    leverage=0.0,
+                    long_count=0,
+                    short_count=0,
                     equity=100_000.0 + i * 5000.0,
-                    timestamp=_ts(i), source="test",
+                    timestamp=_ts(i),
+                    source="test",
                 )
             )
         await event_bus.drain()
@@ -349,9 +403,14 @@ class TestMetricsEngineMaxDrawdown:
         for i, eq in enumerate(equities):
             await event_bus.publish(
                 ExposureUpdatedEvent(
-                    gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                    long_count=0, short_count=0, equity=eq,
-                    timestamp=_ts(i), source="test",
+                    gross_exposure=0.0,
+                    net_exposure=0.0,
+                    leverage=0.0,
+                    long_count=0,
+                    short_count=0,
+                    equity=eq,
+                    timestamp=_ts(i),
+                    source="test",
                 )
             )
         await event_bus.drain()
@@ -361,16 +420,19 @@ class TestMetricsEngineMaxDrawdown:
         assert metrics.max_drawdown == pytest.approx(max_dd_expected)
         assert metrics.peak_equity == 115_000.0
 
-    async def test_all_down_only_drawdown(
-        self, engine: MetricsEngine, event_bus: EventBus
-    ) -> None:
+    async def test_all_down_only_drawdown(self, engine: MetricsEngine, event_bus: EventBus) -> None:
         equities = [100_000.0, 90_000.0, 80_000.0]
         for i, eq in enumerate(equities):
             await event_bus.publish(
                 ExposureUpdatedEvent(
-                    gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                    long_count=0, short_count=0, equity=eq,
-                    timestamp=_ts(i), source="test",
+                    gross_exposure=0.0,
+                    net_exposure=0.0,
+                    leverage=0.0,
+                    long_count=0,
+                    short_count=0,
+                    equity=eq,
+                    timestamp=_ts(i),
+                    source="test",
                 )
             )
         await event_bus.drain()
@@ -381,26 +443,37 @@ class TestMetricsEngineMaxDrawdown:
 
 
 class TestMetricsEngineTurnover:
-    async def test_turnover_computed(
-        self, engine: MetricsEngine, event_bus: EventBus
-    ) -> None:
+    async def test_turnover_computed(self, engine: MetricsEngine, event_bus: EventBus) -> None:
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=_ts(0), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=_ts(0),
+                source="test",
             )
         )
         await event_bus.publish(
             OrderFilledEvent(
-                order_id="1", symbol="AAPL", side="BUY",
-                fill_price=150.0, fill_quantity=100, source="test",
+                order_id="1",
+                symbol="AAPL",
+                side="BUY",
+                fill_price=150.0,
+                fill_quantity=100,
+                source="test",
             )
         )
         await event_bus.publish(
             OrderFilledEvent(
-                order_id="2", symbol="MSFT", side="SELL",
-                fill_price=300.0, fill_quantity=50, source="test",
+                order_id="2",
+                symbol="MSFT",
+                side="SELL",
+                fill_price=300.0,
+                fill_quantity=50,
+                source="test",
             )
         )
         await event_bus.drain()
@@ -417,23 +490,38 @@ class TestMetricsEngineSharpeRatio:
         ts2 = ts1 + timedelta(days=1)
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=ts0, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=ts0,
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=101_000.0,
-                timestamp=ts1, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=101_000.0,
+                timestamp=ts1,
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=102_000.0,
-                timestamp=ts2, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=102_000.0,
+                timestamp=ts2,
+                source="test",
             )
         )
         await event_bus.drain()
@@ -447,23 +535,38 @@ class TestMetricsEngineSharpeRatio:
         ts2 = ts1 + timedelta(days=1)
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=ts0, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=ts0,
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=99_000.0,
-                timestamp=ts1, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=99_000.0,
+                timestamp=ts1,
+                source="test",
             )
         )
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=98_000.0,
-                timestamp=ts2, source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=98_000.0,
+                timestamp=ts2,
+                source="test",
             )
         )
         await event_bus.drain()
@@ -473,9 +576,7 @@ class TestMetricsEngineSharpeRatio:
 
 
 class TestMetricsEngineEdgeCases:
-    async def test_no_events_returns_empty_metrics(
-        self, engine: MetricsEngine
-    ) -> None:
+    async def test_no_events_returns_empty_metrics(self, engine: MetricsEngine) -> None:
         metrics = engine.compute()
         assert metrics.total_return == 0.0
         assert metrics.sharpe_ratio == 0.0
@@ -484,14 +585,17 @@ class TestMetricsEngineEdgeCases:
         assert metrics.turnover == 0.0
         assert metrics.total_trades == 0
 
-    async def test_single_event_no_curve(
-        self, engine: MetricsEngine, event_bus: EventBus
-    ) -> None:
+    async def test_single_event_no_curve(self, engine: MetricsEngine, event_bus: EventBus) -> None:
         await event_bus.publish(
             ExposureUpdatedEvent(
-                gross_exposure=0.0, net_exposure=0.0, leverage=0.0,
-                long_count=0, short_count=0, equity=100_000.0,
-                timestamp=_ts(0), source="test",
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                leverage=0.0,
+                long_count=0,
+                short_count=0,
+                equity=100_000.0,
+                timestamp=_ts(0),
+                source="test",
             )
         )
         await event_bus.drain()

@@ -190,9 +190,7 @@ class AlertManager:
 
         return cancel
 
-    async def _subscribe(
-        self, event_type: type[BaseEvent], handler: Any
-    ) -> Any:
+    async def _subscribe(self, event_type: type[BaseEvent], handler: Any) -> Any:
         async def wrapper(event: BaseEvent) -> None:
             await handler(event)
 
