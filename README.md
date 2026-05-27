@@ -116,11 +116,40 @@ src/edrader/
 
 Event-driven: strategies emit signals → risk engine validates → execution engine places orders → broker adapter sends to IBKR → position manager tracks fills. See `.agents/summary/` for full documentation (architecture, components, interfaces, workflows).
 
-## Web UI
+## User Interface Options
 
-### Recommended Approach: In-Process FastAPI + WebSocket Bridge
+### Recommended Starting Point: Terminal UI (TUI)
 
-Embed a lightweight HTTP/WS server in the same process as the trading engine. The existing `EventBus.subscribe_all()` method already delivers every event in real-time — a WebSocket bridge is the only new code needed.
+For a single-trader desktop setup, a terminal UI is the best first UI — zero network layers, direct access to component state, and instant setup.
+
+```bash
+pip install textual
+```
+
+```python
+from textual.app import App
+from textual.widgets import DataTable, Static, RichLog
+
+class TradingTUI(App):
+    def __init__(self, event_bus, position_manager, risk_engine, ...):
+        super().__init__()
+        # Direct references — no server, no WebSocket, no API
+        self._bus = event_bus
+        self._pm = position_manager
+
+    async def on_mount(self) -> None:
+        async def on_event(event: BaseEvent) -> None:
+            self.call_from_thread(self._update, event)
+        self._bus.subscribe_all(on_event)
+```
+
+A TUI can show real-time positions, PnL, event log, risk status, and strategy output — all updating via `subscribe_all` callbacks. `textual` handles async rendering natively.
+
+**When to graduate to web:** Multi-user access, mobile monitoring, sharing dashboards with non-technical stakeholders, or embedding in a larger platform.
+
+### Web UI: In-Process FastAPI + WebSocket Bridge
+
+When a web interface is needed, embed a lightweight HTTP/WS server in the same process as the trading engine. The existing `EventBus.subscribe_all()` method already delivers every event in real-time — a WebSocket bridge is the only new code needed.
 
 ```
 Browser (React / Svelte / vanilla JS)
