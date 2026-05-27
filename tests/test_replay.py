@@ -4,11 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import BarCloseEvent, BaseEvent
-from trading_platform.replay.clock import ReplayClock
-from trading_platform.replay.engine import ReplayEngine
-from trading_platform.replay.historical_feed import HistoricalFeed
+from edrader.events.bus import EventBus
+from edrader.events.event_types import BarCloseEvent, BaseEvent
+from edrader.replay.clock import ReplayClock
+from edrader.replay.engine import ReplayEngine
+from edrader.replay.historical_feed import HistoricalFeed
 
 
 class TestHistoricalFeed:

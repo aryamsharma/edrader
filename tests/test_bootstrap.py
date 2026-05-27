@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from trading_platform.app.bootstrap import Application
-from trading_platform.app.config import TradingConfig
+from edrader.app.bootstrap import Application
+from edrader.app.config import TradingConfig
 
 
 @pytest.mark.asyncio

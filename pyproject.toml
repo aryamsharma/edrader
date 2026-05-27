@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "trading-platform"
+name = "edrader"
 version = "0.1.0"
 description = "Event-driven modular trading platform for Interactive Brokers"
 authors = ["trader"]
@@ -60,7 +60,7 @@ ignore_missing_imports = true
 exclude = ["tests/"]
 
 [tool.coverage.run]
-source = ["src/trading_platform"]
+source = ["src/edrader"]
 omit = ["*/tests/*", "*/__init__.py"]
 
 [tool.coverage.report]

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     ExposureLimitEvent,
     ExposureUpdatedEvent,
     MarketTickEvent,
@@ -13,7 +13,7 @@ from trading_platform.events.event_types import (
     PositionOpenedEvent,
     PositionUpdate,
 )
-from trading_platform.portfolio.position import PositionManager
+from edrader.portfolio.position import PositionManager
 
 
 @pytest.fixture
@@ -688,8 +688,8 @@ class TestPositionManagerPersistence:
     ) -> None:
         from pathlib import Path
 
-        from trading_platform.persistence.database import DatabaseManager
-        from trading_platform.persistence.models import PositionRecord
+        from edrader.persistence.database import DatabaseManager
+        from edrader.persistence.models import PositionRecord
 
         db_path = Path(tmp_path) / "test_portfolio.db"
         db = DatabaseManager(f"sqlite:///{db_path}")
@@ -721,8 +721,8 @@ class TestPositionManagerPersistence:
     async def test_updates_existing_position(self, event_bus: EventBus, tmp_path: object) -> None:
         from pathlib import Path
 
-        from trading_platform.persistence.database import DatabaseManager
-        from trading_platform.persistence.models import PositionRecord
+        from edrader.persistence.database import DatabaseManager
+        from edrader.persistence.models import PositionRecord
 
         db_path = Path(tmp_path) / "test_portfolio2.db"
         db = DatabaseManager(f"sqlite:///{db_path}")

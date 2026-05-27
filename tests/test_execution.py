@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     MarketTickEvent,
     OrderRequestedEvent,
     OrderSubmittedEvent,
     SignalApprovedEvent,
 )
-from trading_platform.execution.engine import ExecutionEngine
-from trading_platform.execution.sizing import SizingEngine
+from edrader.execution.engine import ExecutionEngine
+from edrader.execution.sizing import SizingEngine
 
 
 @pytest.fixture

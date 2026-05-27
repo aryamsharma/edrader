@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from trading_platform.app.config import BrokerConfig
-from trading_platform.broker.ibkr_client import IBKRClient
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.app.config import BrokerConfig
+from edrader.broker.ibkr_client import IBKRClient
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BrokerDisconnectedEvent,
     BrokerReconnectedEvent,
     HeartbeatEvent,

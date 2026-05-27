@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BaseEvent,
     EventPriority,
     HeartbeatEvent,

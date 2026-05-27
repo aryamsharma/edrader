@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from trading_platform.broker.order_management import BrokerAdapter
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.broker.order_management import BrokerAdapter
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     OrderCancelledEvent,
     OrderFilledEvent,
     OrderRequestedEvent,

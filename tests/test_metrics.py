@@ -4,13 +4,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     ExposureUpdatedEvent,
     OrderFilledEvent,
     PositionClosedEvent,
 )
-from trading_platform.replay.metrics import BacktestMetrics, MetricsEngine
+from edrader.replay.metrics import BacktestMetrics, MetricsEngine
 
 
 @pytest.fixture

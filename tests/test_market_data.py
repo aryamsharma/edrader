@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from trading_platform.broker.market_data import MarketDataFeed
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.broker.market_data import MarketDataFeed
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BarCloseEvent,
     BrokerReconnectedEvent,
     MarketTickEvent,

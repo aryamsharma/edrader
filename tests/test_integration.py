@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BarCloseEvent,
     MarketTickEvent,
     OrderFilledEvent,
@@ -15,11 +15,11 @@ from trading_platform.events.event_types import (
     SignalGeneratedEvent,
     SignalRejectedEvent,
 )
-from trading_platform.execution.engine import ExecutionEngine
-from trading_platform.portfolio.position import PositionManager
-from trading_platform.replay.metrics import MetricsEngine
-from trading_platform.replay.simulated_broker import SimulatedBroker
-from trading_platform.risk.engine import RiskEngine
+from edrader.execution.engine import ExecutionEngine
+from edrader.portfolio.position import PositionManager
+from edrader.replay.metrics import MetricsEngine
+from edrader.replay.simulated_broker import SimulatedBroker
+from edrader.risk.engine import RiskEngine
 
 
 @pytest.fixture

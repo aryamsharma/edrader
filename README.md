@@ -73,7 +73,7 @@ Key config paths:
 Requires IB Gateway or TWS running with API enabled:
 
 ```sh
-poetry run python -m trading_platform.app.main
+poetry run python -m edrader.app.main
 ```
 
 ### Tests
@@ -99,7 +99,7 @@ Order: `ruff check → ruff format → mypy → pytest`
 ## Project Structure
 
 ```
-src/trading_platform/
+src/edrader/
 ├── app/           # Bootstrap, config, main
 ├── broker/        # IBKR client, market data, order management
 ├── events/        # Domain events (27 types), event bus, journal

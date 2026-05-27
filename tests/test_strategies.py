@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BarCloseEvent,
     BaseEvent,
     SignalGeneratedEvent,
 )
-from trading_platform.strategies.base import Strategy, StrategyLoader
+from edrader.strategies.base import Strategy, StrategyLoader
 
 
 class BlankStrategy(Strategy):
@@ -26,7 +26,7 @@ class FilterStrategy(Strategy):
         self.received: list[BaseEvent] = []
 
     def event_types(self) -> list[type[BaseEvent]]:
-        from trading_platform.events.event_types import BarCloseEvent, MarketTickEvent
+        from edrader.events.event_types import BarCloseEvent, MarketTickEvent
 
         return [BarCloseEvent, MarketTickEvent]
 
@@ -144,7 +144,7 @@ class TestStrategyEventSubscription:
         assert after_stop_count < initial_count
 
     async def test_custom_event_types(self, event_bus: EventBus) -> None:
-        from trading_platform.events.event_types import MarketTickEvent
+        from edrader.events.event_types import MarketTickEvent
 
         s = FilterStrategy("test-filter", event_bus)
         await s.start()

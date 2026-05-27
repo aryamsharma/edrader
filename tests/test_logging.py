@@ -1,4 +1,4 @@
-from trading_platform.monitoring.logging import get_logger, setup_logging
+from edrader.monitoring.logging import get_logger, setup_logging
 
 
 def test_setup_logging() -> None:

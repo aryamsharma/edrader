@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     AlertEvent,
     BrokerDisconnectedEvent,
     BrokerReconnectedEvent,
@@ -15,8 +15,8 @@ from trading_platform.events.event_types import (
     SignalRejectedEvent,
     TradingHaltedEvent,
 )
-from trading_platform.monitoring.alerts import AlertManager
-from trading_platform.monitoring.metrics import MetricsCollector, RuntimeSnapshot
+from edrader.monitoring.alerts import AlertManager
+from edrader.monitoring.metrics import MetricsCollector, RuntimeSnapshot
 
 
 @pytest.fixture

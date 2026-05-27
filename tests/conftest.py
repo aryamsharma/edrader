@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from trading_platform.app.config import TradingConfig
+from edrader.app.config import TradingConfig
 
 
 @pytest.fixture

@@ -9,7 +9,7 @@ poetry run ruff check --fix .          # Lint + fix
 poetry run ruff format .               # Format (line-length 100, double quotes)
 poetry run mypy src/                   # Strict typecheck (0 errors expected)
 poetry run pre-commit run --all-files  # All hooks
-poetry run python -m trading_platform.app.main  # Run app (needs IB Gateway)
+poetry run python -m edrader.app.main  # Run app (needs IB Gateway)
 ```
 
 Order: `ruff check -> ruff format -> mypy -> pytest`.
@@ -74,7 +74,7 @@ graph TB
 ## Directory Structure & Key Entry Points
 
 ```
-src/trading_platform/
+src/edrader/
 ├── app/           # bootstrap.py (Application, lifecycle), config.py (pydantic), main.py
 ├── broker/        # ibkr_client.py (IBKR connection), market_data.py (ticks+bars),
 │                  # order_management.py (BrokerAdapter)
@@ -130,12 +130,12 @@ sequenceDiagram
 | ruff | line-length 100, double quotes, lint: `E,F,I,N,W,UP,B,SIM,ARG` |
 | mypy | strict mode, `disallow_untyped_defs = true`, excludes `tests/` |
 | pytest | `asyncio_mode = auto`, `pythonpath = ["src"]` |
-| coverage | source: `src/trading_platform` |
+| coverage | source: `src/edrader` |
 
 ## Test Conventions
 
 - Async by default (`asyncio_mode = auto`)
-- Import directly from `trading_platform.*` (via `pythonpath = ["src"]`)
+- Import directly from `edrader.*` (via `pythonpath = ["src"]`)
 - After `EventBus.publish()`, call `await event_bus.drain()` before assertions
 - `tmp_path` for SQLite tests, `MagicMock`/`AsyncMock` for IBKR tests
 - Mock `ib` injected via constructor; never requires live TWS/Gateway

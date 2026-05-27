@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from trading_platform.persistence.database import DatabaseManager
-from trading_platform.persistence.models import (
+from edrader.persistence.database import DatabaseManager
+from edrader.persistence.models import (
     FillRecord,
     OrderRecord,
     PnlSnapshotRecord,

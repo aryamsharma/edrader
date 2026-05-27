@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BarCloseEvent,
     SignalGeneratedEvent,
 )
-from trading_platform.strategies.examples.mean_reversion import MeanReversionStrategy
-from trading_platform.strategies.examples.sma_crossover import SmaCrossoverStrategy
+from edrader.strategies.examples.mean_reversion import MeanReversionStrategy
+from edrader.strategies.examples.sma_crossover import SmaCrossoverStrategy
 
 
 @pytest.fixture

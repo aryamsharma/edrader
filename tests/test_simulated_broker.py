@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BarCloseEvent,
     MarketTickEvent,
     OrderFilledEvent,
@@ -13,7 +13,7 @@ from trading_platform.events.event_types import (
     OrderStatusChangedEvent,
     OrderSubmittedEvent,
 )
-from trading_platform.replay.simulated_broker import SimulatedBroker
+from edrader.replay.simulated_broker import SimulatedBroker
 
 
 @pytest.fixture

@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from trading_platform.events.event_types import (
+from edrader.events.event_types import (
     BaseEvent,
     HeartbeatEvent,
     MarketTickEvent,
     OrderFilledEvent,
     SignalGeneratedEvent,
 )
-from trading_platform.events.journal import EventJournal
+from edrader.events.journal import EventJournal
 
 
 @pytest.fixture

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from trading_platform.events.bus import EventBus
-from trading_platform.events.event_types import (
+from edrader.events.bus import EventBus
+from edrader.events.event_types import (
     BrokerDisconnectedEvent,
     ExposureUpdatedEvent,
     MarketTickEvent,
@@ -14,7 +14,7 @@ from trading_platform.events.event_types import (
     SignalRejectedEvent,
     TradingHaltedEvent,
 )
-from trading_platform.risk.engine import RiskEngine
+from edrader.risk.engine import RiskEngine
 
 
 @pytest.fixture

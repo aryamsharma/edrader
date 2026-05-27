@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from trading_platform.events.event_types import (
+from edrader.events.event_types import (
     AccountSummaryUpdate,
     BarCloseEvent,
     BaseEvent,

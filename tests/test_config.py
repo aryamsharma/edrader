@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from trading_platform.app.config import load_config
+from edrader.app.config import load_config
 
 
 def test_load_default_config(default_config) -> None:
@@ -44,14 +44,14 @@ def test_config_defaults_not_mutated(default_config) -> None:
 def test_invalid_environment_rejected() -> None:
     from pydantic import ValidationError
 
-    from trading_platform.app.config import AppConfig
+    from edrader.app.config import AppConfig
 
     with pytest.raises(ValidationError):
         AppConfig(environment="invalid")
 
 
 def test_broker_config_defaults() -> None:
-    from trading_platform.app.config import BrokerConfig
+    from edrader.app.config import BrokerConfig
 
     config = BrokerConfig()
     assert config.host == "127.0.0.1"
@@ -60,7 +60,7 @@ def test_broker_config_defaults() -> None:
 
 
 def test_risk_config_defaults() -> None:
-    from trading_platform.app.config import RiskConfig
+    from edrader.app.config import RiskConfig
 
     config = RiskConfig()
     assert config.max_leverage == 2.0
