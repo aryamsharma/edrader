@@ -170,7 +170,19 @@
 
 ### Application (`app/bootstrap.py`)
 - **File:** `src/trading_platform/app/bootstrap.py`
-- **Purpose:** Wires config, EventBus, and lifecycle
+- **Purpose:** Wires config, EventBus, and all component lifecycles
+- **Component groups built during startup:**
+  - **Live** (`paper`/`live` env): `IBKRClient` + `MarketDataFeed` + `BrokerAdapter` (shared `IB()`)
+  - **Simulated** (`development` env): `SimulatedBroker`
+  - **Monitoring** (all envs): `RiskEngine` + `ExecutionEngine` + `PositionManager` + `MetricsCollector` + `AlertManager`
+- **Startup sequence:**
+  1. `EventBus.start()` — dispatch loop begins
+  2. Build and start environment-appropriate broker components
+  3. In `development`: `HistoricalFeed` loads CSV files from `data/`, `ReplayEngine.run()` launched as background task
+  4. Build and start monitoring components
+  5. Wire `EventJournal` as wildcard subscriber (logs all events to SQLite)
+  6. Register strategies in `StrategyLoader`, create and start instances
+- **Shutdown sequence:** Stop strategies → stop components (reverse order) → close journal → stop event bus
 - **Key features:** `from_config_path()`, `startup()`, `shutdown()`
 
 ### Config (`app/config.py`)

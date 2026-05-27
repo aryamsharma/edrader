@@ -132,6 +132,51 @@ graph TB
     EB --> Shared
 ```
 
+## Application Startup (\`bootstrap.py\`)
+
+\`\`\`mermaid
+flowchart TD
+    subgraph Application.startup
+        direction TB
+        Bus[EventBus.start] --> Env{Environment?}
+        Env -->|paper/live| LiveGroup
+        Env -->|development| DevGroup
+        LiveGroup --> MonGroup
+        DevGroup --> MonGroup
+    end
+
+    subgraph LiveGroup[Paper/Live Components]
+        IBKR[IBKRClient.start]
+        MDF[MarketDataFeed.start]
+        BA[BrokerAdapter.start]
+    end
+
+    subgraph DevGroup[Development Components]
+        SB[SimulatedBroker.start]
+        HF[HistoricalFeed.load_csv]
+        RE[ReplayEngine.run<br/>as background task]
+    end
+
+    subgraph MonGroup[Monitoring Components]
+        Risk[RiskEngine.start]
+        Exec[ExecutionEngine.start]
+        PM[PositionManager.start]
+        MC[MetricsCollector.start]
+        AM[AlertManager.start]
+    end
+
+    MonGroup --> Journal[Journal wired as wildcard subscriber]
+    Journal --> StratReg[Strategies registered in StrategyLoader]
+    StratReg --> StratStart[Strategy instances created + started]
+```
+
+- \`Application.startup()\` is the single entry point called from \`main.py\`
+- Component groups are built via factory methods (\`_build_live_components\`, \`_build_monitoring_components\`, etc.)
+- All components share the same \`EventBus\` instance injected at construction
+- \`Application.shutdown()\` stops strategies first, then component groups in reverse order, closes journal, stops event bus
+- In development mode, \`ReplayEngine.run()\` is launched as an \`asyncio.Task\` and publishes CSV data as \`BarCloseEvent\` at clock-driven cadence
+- \`StrategyLoader\` registers both \`SmaCrossoverStrategy\` and \`MeanReversionStrategy\`; instances are created and started for all environments
+
 ## Module Dependency Graph
 ```mermaid
 graph TD

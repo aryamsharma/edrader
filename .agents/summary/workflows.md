@@ -233,7 +233,48 @@ flowchart TD
     Stale -->|Fresh| Approve[SignalApprovedEvent]
 ```
 
-## 8. Monitoring Alert Flow
+## 8. Development Mode Data Flow (ReplayEngine)
+
+```mermaid
+sequenceDiagram
+    participant CSV as data/*.csv
+    participant HF as HistoricalFeed
+    participant RE as ReplayEngine
+    participant EB as EventBus
+    participant S as Strategy
+    participant Rest as Pipeline Components
+
+    Note over CSV,Rest: Application.startup() for development environment
+
+    HF->>CSV: load_csv(path, symbol)
+    HF->>HF: parse rows → BarCloseEvent list
+    HF->>RE: load_events(events)
+    RE->>RE: sort by timestamp
+
+    Note over RE: launched as asyncio.create_task(replay.run())
+
+    loop For each Event
+        RE->>RE: set clock time
+        RE->>EB: publish(BarCloseEvent)
+        EB->>S: dispatch
+        S->>S: on_event() → check signal
+        alt Signal triggered
+            S->>EB: publish(SignalGeneratedEvent)
+            EB->>Rest: dispatch (risk→exec→broker→position)
+        end
+        RE->>RE: sleep(delta / speed)
+    end
+
+    Note over RE: replay completes → task exits
+```
+
+- Only runs in `development` environment (skipped for `paper`/`live`)
+- Reads CSV files from `data/` directory (filename = symbol, e.g. `AAPL.csv`)
+- `HistoricalFeed` handles column mapping, date filtering, and malformed row skipping
+- `ReplayEngine` publishes events at clock-adjusted cadence (real-time at speed=1)
+- Same downstream pipeline processes events regardless of source (live or replay)
+
+## 9. Monitoring Alert Flow
 
 ```mermaid
 flowchart TD

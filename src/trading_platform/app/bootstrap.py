@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ class Application:
         self._journal: EventJournal | None = None
         self._strategy_loader: StrategyLoader | None = None
         self._strategies: list[Any] = []
+        self._replay_task: asyncio.Task[None] | None = None
 
     @classmethod
     def from_config_path(cls, path: Path) -> Application:
@@ -63,6 +65,29 @@ class Application:
 
         broker = SimulatedBroker(event_bus=self.event_bus)
         return [broker]
+
+    def _build_replay(self) -> None:
+        from trading_platform.replay.clock import ReplayClock
+        from trading_platform.replay.engine import ReplayEngine
+        from trading_platform.replay.historical_feed import HistoricalFeed
+
+        clock = ReplayClock()
+        feed = HistoricalFeed()
+        replay = ReplayEngine(event_bus=self.event_bus, clock=clock)
+
+        data_dir = Path("data")
+        if data_dir.exists():
+            for csv_path in sorted(data_dir.glob("*.csv")):
+                symbol = csv_path.stem
+                events = feed.load_csv(csv_path, symbol=symbol)
+                if events:
+                    replay.load_events(events)
+                    logger.info(
+                        "loaded_csv_data", symbol=symbol, path=str(csv_path), count=len(events)
+                    )
+
+        if replay.total_events > 0:
+            self._replay_task = asyncio.create_task(replay.run())
 
     def _build_monitoring_components(self) -> list[Any]:
         risk = RiskEngine(event_bus=self.event_bus)
@@ -129,6 +154,7 @@ class Application:
             sim = self._build_simulated_components()
             self._components[SIMULATED_COMPONENTS] = sim
             await self._start_components(sim)
+            self._build_replay()
 
         monitoring = self._build_monitoring_components()
         self._components[MONITORING_COMPONENTS] = monitoring
@@ -147,6 +173,12 @@ class Application:
 
     async def shutdown(self) -> None:
         self._running = False
+
+        if self._replay_task is not None:
+            self._replay_task.cancel()
+            with __import__("contextlib").suppress(asyncio.CancelledError):
+                await self._replay_task
+            self._replay_task = None
 
         await self._stop_strategies()
 
