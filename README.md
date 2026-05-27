@@ -115,3 +115,66 @@ src/edrader/
 ## Architecture
 
 Event-driven: strategies emit signals → risk engine validates → execution engine places orders → broker adapter sends to IBKR → position manager tracks fills. See `.agents/summary/` for full documentation (architecture, components, interfaces, workflows).
+
+## Architecture Rationale
+
+### Why Event-Driven Modular Monolith?
+
+The system is built as a **single-process event-driven monolith** — one asyncio event loop with typed domain events as the only cross-module communication. This was chosen for the following reasons:
+
+| Concern | Why This Architecture Fits |
+|---|---|
+| **Latency** | Single process, no serialization overhead between components. Events flow through the bus at microsecond latency. |
+| **Data consistency** | Position, risk, and execution state live in the same process — no distributed transactions, no eventual consistency headaches. |
+| **Live/backtest parity** | Same code path for both modes — only the data source and broker differ. Events are the abstraction boundary. |
+| **Observability** | Every event passes through the journal — full audit trail with zero instrumentation. |
+| **Iteration speed** | 20 test files, 435 tests, instant feedback loop. No service deployment overhead. |
+
+### Scaling Dimensions
+
+When the application needs to grow, the event-driven foundation maps naturally to a distributed architecture. Each bounded context becomes an independent service connected by a streaming event backbone (Kafka / Redpanda / NATS).
+
+```
+Current: EventBus (in-process queues)
+         ↓
+Future:  Kafka Topic (partitioned event stream)
+```
+
+| Scale Dimension | Trigger | Target Architecture |
+|---|---|---|
+| **More strategies (100s)** | Single process CPU-bound on signal computation | Strategy workers as stateless consumers, scaled by symbol shard or strategy type |
+| **Higher market data volume** | Tick rate exceeds single-thread throughput | Dedicated market data ingestion service, fan-out to strategy workers |
+| **Multiple brokers / liquidity providers** | Need to route orders to IBKR, Coinbase, FXCM simultaneously | Broker gateway per provider — each subscribes to `OrderRequestedEvent`, translates to provider-specific API |
+| **Multi-user / multi-portfolio** | Separate risk limits, PnL tracking per account | Position/Risk as a single-writer service, queried by strategy workers |
+| **Geographic distribution** | Latency-sensitive strategies need colo | Strategy workers deployed per region, upstream sequencer for global event ordering |
+| **Global sequence ordering** | Deterministic replay and audit across services | Formal **Sequencer** service — assigns monotonic sequence at event ingest before any consumer sees it |
+
+### Service Decomposition Map
+
+Each box represents a potential microservice, matching the current module boundaries:
+
+```
+Market Data Feed ──→ Kafka ──→ Strategy Workers ──→ Risk Service ──→ Execution Service
+      │                      ↗                           │                    │
+      │                     │                            ▼                    ▼
+      │                     │                     Event Stream          Broker Gateway
+      │                     │                                               │
+      ▼                     │                                               ▼
+Position Service ←──────── Event Stream ←──────────────────────────── Order Filled
+      │
+      ▼
+Metrics / Alerts (observers)
+```
+
+### Sequencing
+
+The current system uses a single dispatch task with dual priority queues. Events are sequenced at journal-write time during dispatch.
+
+For distributed/HFT-grade requirements, a **Sequencer** service is inserted at the event ingest boundary — assigns a global, monotonically increasing sequence number before any consumer processes the event. This enables:
+
+- Deterministic replay across services
+- Exactly-once processing semantics
+- Chronological ordering even across priority levels
+- Time-based partitioning for backtesting reconciliation
+
+The event serialization (`to_dict()` / `from_dict()`) and typed event contracts are already in place — adding a sequencer changes no existing code, only inserts a new service between `publish()` and the streaming backbone.
