@@ -21,7 +21,7 @@ This directory contains structured documentation for the `trading-platform` code
 | `dependencies.md` | External libraries and their usage patterns | Understanding library usage conventions |
 | `design.md` | Original system design specification (pre-implementation blueprint) | Understanding design intent, rationale behind decisions |
 | `implementation_plan.md` | Phased implementation plan (P0–P10) | Understanding the build order, task breakdown per phase |
-| `status.md` | Implementation status tracker (⚠️ outdated) | Historical per-phase task tracking; see AGENTS.md for current status |
+| `status.md` | Implementation status tracker (up to date) | Per-phase task tracking, test suite summary, code quality gates |
 
 ## Quick Reference by Concern
 
