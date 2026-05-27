@@ -1,184 +1,214 @@
 # Data Models
 
-## BaseEvent Hierarchy
+## Event Models (`events/event_types.py`)
 
-```mermaid
-classDiagram
-    class BaseEvent {
-        +str event_id
-        +datetime timestamp
-        +EventPriority priority
-        +str correlation_id
-        +str source
-        +to_dict() dict
-        +from_dict(data) BaseEvent
-    }
-
-    class MarketTickEvent {
-        +str symbol
-        +float price
-        +int volume
-        +float bid
-        +float ask
-    }
-
-    class BarCloseEvent {
-        +str symbol
-        +float open
-        +float high
-        +float low
-        +float close
-        +int volume
-    }
-
-    class SignalGeneratedEvent {
-        +str strategy_id
-        +str symbol
-        +str side
-        +float confidence
-        +int suggested_size
-    }
-
-    class OrderRequestedEvent {
-        +str symbol
-        +str side
-        +int quantity
-        +str order_type
-        +float limit_price
-    }
-
-    class BrokerDisconnectedEvent {
-        +str reason
-    }
-
-    class BrokerReconnectedEvent {
-        +int attempts
-    }
-
-    BaseEvent <|-- MarketTickEvent
-    BaseEvent <|-- BarCloseEvent
-    BaseEvent <|-- SignalGeneratedEvent
-    BaseEvent <|-- OrderRequestedEvent
-    BaseEvent <|-- BrokerDisconnectedEvent
-    BaseEvent <|-- BrokerReconnectedEvent
+### BaseEvent
+```python
+@dataclass(frozen=True, slots=True)
+class BaseEvent:
+    event_id: str          # uuid4 hex (16 chars)
+    timestamp: datetime    # UTC
+    priority: EventPriority  # LOW, NORMAL, HIGH, CRITICAL
+    correlation_id: str    # For tracing related events
+    source: str            # Component that created this event
 ```
 
-## All 25 Event Types
+All 27 concrete event types extend `BaseEvent` with domain-specific fields (see `interfaces.md` for full catalog).
 
-| Event | Fields (beyond BaseEvent) |
-|---|---|
-| MarketTickEvent | symbol, price, volume, bid, ask |
-| BarCloseEvent | symbol, open, high, low, close, volume |
-| MarketOpenEvent | symbol |
-| MarketCloseEvent | symbol |
-| SignalGeneratedEvent | strategy_id, symbol, side, confidence, suggested_size |
-| SignalRejectedEvent | strategy_id, symbol, reason |
-| StrategyErrorEvent | strategy_id, error |
-| RiskViolationEvent | strategy_id, rule, reason |
-| TradingHaltedEvent | reason |
-| ExposureLimitEvent | current_exposure, limit |
-| OrderRequestedEvent | symbol, side, quantity, order_type, limit_price |
-| OrderSubmittedEvent | order_id, symbol, side, quantity, order_type, limit_price |
-| OrderFilledEvent | order_id, symbol, side, fill_price, fill_quantity |
-| OrderCancelledEvent | order_id, reason |
-| OrderStatusChangedEvent | order_id, status |
-| PositionOpenedEvent | symbol, quantity, avg_cost |
-| PositionClosedEvent | symbol, realized_pnl |
-| PnLUpdatedEvent | symbol, unrealized_pnl, realized_pnl |
-| AccountSummaryUpdate | cash, buying_power, gross_position_value, net_liquidation |
-| PositionUpdate | symbol, position, avg_cost, market_price |
-| BrokerDisconnectedEvent | reason |
-| BrokerReconnectedEvent | attempts |
-| HeartbeatEvent | (none) |
-
-## EventPriority Enum
-
-| Priority | Queue Route |
-|---|---|
-| LOW | Normal queue |
-| NORMAL | Normal queue |
-| HIGH | High-priority queue (drained first) |
-| CRITICAL | High-priority queue (drained first) |
-
-## Config Models (pydantic BaseModel)
-
-```mermaid
-classDiagram
-    class AppConfig {
-        +str name
-        +Literal["development","paper","live"] environment
-        +str log_level
-    }
-
-    class BrokerConfig {
-        +str host
-        +int port
-        +int client_id
-        +int connect_timeout
-        +float reconnect_interval
-        +int max_reconnect_attempts
-    }
-
-    class RiskConfig {
-        +float max_daily_loss
-        +int max_position_size
-        +float max_leverage
-        +float max_symbol_exposure
-        +int max_concurrent_positions
-    }
-
-    class PersistenceConfig {
-        +str database_url
-        +bool echo
-    }
-
-    class MonitoringConfig {
-        +bool metrics_enabled
-        +int metrics_port
-    }
-
-    class TradingConfig {
-        +AppConfig app
-        +BrokerConfig broker
-        +RiskConfig risk
-        +PersistenceConfig persistence
-        +MonitoringConfig monitoring
-    }
-
-    TradingConfig *-- AppConfig
-    TradingConfig *-- BrokerConfig
-    TradingConfig *-- RiskConfig
-    TradingConfig *-- PersistenceConfig
-    TradingConfig *-- MonitoringConfig
+### EventPriority Enum
+```python
+class EventPriority(Enum):
+    LOW = auto()
+    NORMAL = auto()
+    HIGH = auto()
+    CRITICAL = auto()
 ```
 
-## SQLAlchemy Model: EventRecord
+## Domain Dataclasses
 
+### Position (`portfolio/position.py`)
+```python
+@dataclass
+class Position:
+    symbol: str
+    quantity: int            # Positive=long, Negative=short
+    avg_cost: float          # Average entry price
+    realized_pnl: float      # Cumulative realized PnL
+```
+
+### ExposureSnapshot (`portfolio/position.py`)
+```python
+@dataclass
+class ExposureSnapshot:
+    gross_exposure: float    # Sum of |position| * price
+    net_exposure: float      # Long - short exposure
+    long_count: int          # Number of long positions
+    short_count: int         # Number of short positions
+```
+
+### BacktestMetrics (`replay/metrics.py`)
+```python
+@dataclass
+class BacktestMetrics:
+    total_return: float      # (end - start) / start
+    annualized_return: float
+    sharpe_ratio: float
+    max_drawdown: float      # Peak-to-trough percentage
+    win_rate: float
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    turnover: float          # Total traded / avg equity
+    start_equity: float
+    end_equity: float
+    peak_equity: float
+```
+
+### PendingOrder / CompletedOrder (`replay/simulated_broker.py`)
+```python
+@dataclass
+class PendingOrder:
+    symbol: str
+    side: str                # BUY / SELL
+    quantity: int
+    order_type: str          # MKT / LMT
+    limit_price: float | None
+    order_id: str
+
+@dataclass
+class CompletedOrder:
+    order_id: str
+    symbol: str
+    side: str
+    quantity: int
+    fill_price: float
+    commission: float
+```
+
+### RuntimeSnapshot (`monitoring/metrics.py`)
+```python
+@dataclass
+class RuntimeSnapshot:
+    queue_depth: int
+    subscriber_count: int
+    throughput_1m: float
+    total_published: int
+    total_dispatched: int
+    total_errors: int
+    top_event_types: list[tuple[str, int]]
+    top_error_types: list[tuple[str, int]]
+```
+
+### DispatchMetrics (`events/bus.py`)
+```python
+class DispatchMetrics:
+    total_published: int
+    total_dispatched: int
+    total_errors: int
+    events_by_type: dict[str, int]
+    errors_by_type: dict[str, int]
+```
+
+## Database Models (`persistence/models.py`)
+
+All ORM models use SQLAlchemy `DeclarativeBase`:
+
+### OrderRecord (`orders` table)
 | Column | Type | Constraints |
 |---|---|---|
 | id | Integer | PK, autoincrement |
-| sequence | Integer | NOT NULL |
+| order_id | String(64) | NOT NULL, UNIQUE, indexed |
+| symbol | String(32) | NOT NULL |
+| side | String(8) | NOT NULL |
+| quantity | Integer | NOT NULL |
+| filled_quantity | Integer | NOT NULL, default 0 |
+| order_type | String(16) | NOT NULL |
+| limit_price | Float | NULLABLE |
+| status | String(32) | NOT NULL, default 'PendingSubmit' |
+| created_at | DateTime(tz) | NOT NULL |
+| updated_at | DateTime(tz) | NOT NULL |
+
+### FillRecord (`fills` table)
+| Column | Type | Constraints |
+|---|---|---|
+| id | Integer | PK, autoincrement |
+| order_id | String(64) | NOT NULL, indexed |
+| symbol | String(32) | NOT NULL |
+| side | String(8) | NOT NULL |
+| fill_price | Float | NOT NULL |
+| fill_quantity | Integer | NOT NULL |
+| fill_time | DateTime(tz) | NOT NULL |
+| created_at | DateTime(tz) | NOT NULL |
+
+### PositionRecord (`positions` table)
+| Column | Type | Constraints |
+|---|---|---|
+| id | Integer | PK, autoincrement |
+| symbol | String(32) | NOT NULL, UNIQUE, indexed |
+| quantity | Integer | NOT NULL |
+| avg_cost | Float | NOT NULL |
+| updated_at | DateTime(tz) | NOT NULL |
+
+### PnlSnapshotRecord (`pnl_snapshots` table)
+| Column | Type | Constraints |
+|---|---|---|
+| id | Integer | PK, autoincrement |
+| symbol | String(32) | NOT NULL, indexed |
+| unrealized_pnl | Float | NOT NULL |
+| realized_pnl | Float | NOT NULL |
+| snapshot_time | DateTime(tz) | NOT NULL |
+| created_at | DateTime(tz) | NOT NULL |
+
+### EventRecord (`event_journal` table, from `events/journal.py`)
+| Column | Type | Constraints |
+|---|---|---|
+| id | Integer | PK, autoincrement |
+| sequence | Integer | NOT NULL, monotonic |
 | event_type | String(128) | NOT NULL |
 | event_id | String(64) | NOT NULL, indexed |
 | timestamp | DateTime(tz) | NOT NULL |
-| payload | Text | NOT NULL (JSON) |
+| payload | Text | NOT NULL (JSON string) |
 | recorded_at | DateTime(tz) | NOT NULL |
 
-## BarAggregator Internal State
+## Config Models (`app/config.py`)
 
-| Field | Type | Description |
-|---|---|---|
-| symbol | str | Symbol being aggregated |
-| bar_size_seconds | float | Time window per bar |
-| bar_start | datetime | When current bar started |
-| open/high/low/close | float | OHLCV accumulators |
-| volume | int | Accumulated volume |
+```python
+class TradingConfig(BaseModel):
+    app: AppConfig           # name, environment, log_level
+    broker: BrokerConfig     # host, port, reconnect params
+    risk: RiskConfig         # max_daily_loss, max_position_size, etc.
+    persistence: PersistenceConfig  # database_url, echo
+    monitoring: MonitoringConfig    # metrics_enabled, metrics_port
+    execution: ExecutionConfig      # sizing_method, throttle_delay, etc.
+```
 
-## MarketDataFeed Internal State
+## Serialization
 
-| Field | Type | Description |
-|---|---|---|
-| _subscriptions | dict[str, Contract] | Symbol → ib_insync Contract |
-| _aggs | dict[str, BarAggregator] | Symbol → bar aggregator |
-| _handler_id | str | pendingTickersEvent handler ID |
-| _running | bool | Feed active flag |
+Events serialize via `to_dict()` / `from_dict()`:
+
+```python
+# Serialize
+event = MarketTickEvent(symbol="AAPL", price=150.0)
+data = event.to_dict()
+# {
+#   "event_type": "MarketTickEvent",
+#   "event_id": "a1b2c3d4e5f6g7h8",
+#   "timestamp": "2026-05-27T...",
+#   "priority": "NORMAL",
+#   "correlation_id": "",
+#   "source": "",
+#   "symbol": "AAPL",
+#   "price": 150.0,
+#   "volume": 0,
+#   "bid": 0.0,
+#   "ask": 0.0
+# }
+
+# Deserialize
+restored = BaseEvent.from_dict(data)
+```
+
+- Enum values serialized as `.name` (string)
+- Timestamps serialized as ISO format, restored via `fromisoformat`
+- Unknown event_type falls back to `BaseEvent`
+- Custom `to_dict` uses `default=str` for non-serializable fields (e.g., `datetime` in some nested cases)

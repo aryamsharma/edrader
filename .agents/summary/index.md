@@ -1,44 +1,79 @@
-# Codebase Knowledge Index
+# Codebase Documentation Index
 
-> Primary entry point for AI assistants. Contains metadata about each documentation file to help locate relevant information efficiently.
+## Purpose
+This directory contains structured documentation for the `trading-platform` codebase. AI assistants should use this index to locate the most relevant documentation file for a given question.
 
-## How to Use This Index
+## How to Use
+1. Read this index file first to understand what documentation is available
+2. Consult the specific file(s) relevant to your question
+3. For questions spanning multiple concerns, cross-reference across files
 
-1. Start here to understand what information is available and where
-2. Consult specific files for detailed content on a topic
-3. Use the consolidated `AGENTS.md` (in repo root) for a condensed assistant guide
+## File Manifest
 
-## Document Map
-
-| File | Purpose | Key Sections |
+| File | Primary Content | Best For |
 |---|---|---|
-| `architecture.md` | System architecture, design patterns, runtime model | Event-driven architecture, modular monolith, async event loop, priority dispatch |
-| `components.md` | Major components and their responsibilities | EventBus, EventJournal, IBKRClient, MarketDataFeed, Application |
-| `interfaces.md` | APIs, interfaces, integration points | EventBus pub/sub, ib_insync wrapper, config loading, logging API |
-| `data_models.md` | Data structures, events, config models | BaseEvent hierarchy, 25 event types, pydantic configs, SQLAlchemy model |
-| `workflows.md` | Key processes and workflows | Connection lifecycle, market data flow, event dispatch, reconnect, TDD cycle |
-| `dependencies.md` | External dependencies and usage | pydantic, structlog, ib_insync, SQLAlchemy, pyyaml, dev tooling |
-| `codebase_info.md` | Basic codebase metadata | File counts, test stats, language versions, tooling |
+| `codebase_info.md` | Project overview, stats, structure, tech stack | Quick orientation, build commands, directory layout |
+| `architecture.md` | System architecture, design patterns, event flow | Understanding how components interact, overall design |
+| `components.md` | All 11+ components, responsibilities, subscriptions | Understanding what each module does in detail |
+| `interfaces.md` | Event types, API boundaries, integration points | Understanding event contracts and BC boundaries |
+| `data_models.md` | Domain dataclasses, DB models, serialization | Understanding Position, Order, Fill data structures |
+| `workflows.md` | Key processes: signal→fill, reconnect, monitoring | Following step-by-step event flows |
+| `dependencies.md` | External libraries and their usage patterns | Understanding library usage conventions |
+| `design.md` | Original system design specification (pre-implementation blueprint) | Understanding design intent, rationale behind decisions |
+| `implementation_plan.md` | Phased implementation plan (P0–P10) | Understanding the build order, task breakdown per phase |
+| `status.md` | Implementation status tracker (⚠️ outdated) | Historical per-phase task tracking; see AGENTS.md for current status |
 
-## Quick Reference by Question Type
+## Quick Reference by Concern
 
-| Question | File to Consult |
-|---|---|
-| "How does the event system work?" | `architecture.md`, `components.md` (EventBus section), `data_models.md` (BaseEvent) |
-| "What events exist?" | `data_models.md` (25 event types table) |
-| "How do I add a new event type?" | `data_models.md` (BaseEvent pattern), `interfaces.md` (serialization) |
-| "How does IBKR connectivity work?" | `components.md` (IBKRClient, MarketDataFeed) |
-| "What's the testing setup?" | `codebase_info.md` (tooling), `components.md` (test patterns) |
-| "How do I run lint/typecheck/tests?" | `codebase_info.md` (commands), `dependencies.md` |
-| "What are the architecture rules?" | `architecture.md` (design principles, constraints) |
-| "What's the project structure?" | `codebase_info.md` (source overview) |
-| "How do I implement Phase 2.3?" | `components.md` (stub modules), `architecture.md` (planned structure) |
-| "What are the commit conventions?" | `workflows.md` (commit conventions) |
+### "How does this system work?"
+→ `architecture.md` for overview, `workflows.md` for process flows
 
-## Cross-References
+### "Where is X implemented?"
+→ `components.md` for module locations and responsibilities
 
-- `architecture.md` references `components.md` for detailed component descriptions
-- `components.md` references `interfaces.md` for public APIs
-- `data_models.md` references `interfaces.md` for serialization contracts
-- `workflows.md` references `components.md` and `architecture.md` for context
-- `dependencies.md` references all other files for usage context
+### "What events exist and who subscribes to what?"
+→ `interfaces.md` for event contracts, `components.md` for subscription tables
+
+### "What data structures/tables exist?"
+→ `data_models.md` for domain models and DB schema
+
+### "What external libs and how are they used?"
+→ `dependencies.md` for library usage patterns
+
+### "How do I run/lint/test?"
+→ `codebase_info.md` for build commands
+
+## Cross-Reference Map
+```
+                     ┌──────────────────┐
+                     │  Architecture.md │──→ High-level design
+                     └────────┬─────────┘
+                              │ decomposes into
+                              ▼
+                     ┌──────────────────┐
+                     │  Components.md   │──→ Module locations
+                     └────────┬─────────┘
+                              │ defines contracts
+                              ▼
+                     ┌──────────────────┐
+                     │  Interfaces.md   │──→ Events, types
+                     └────────┬─────────┘
+                              │ implemented via
+                              ▼
+                     ┌──────────────────┐
+                     │  DataModels.md   │──→ Dataclasses, DB
+                     └────────┬─────────┘
+                              │ orchestrated by
+                              ▼
+                     ┌──────────────────┐
+                     │  Workflows.md    │──→ Process flows
+                     └────────┬─────────┘
+                              │ built on
+                              ▼
+                     ┌──────────────────┐
+                     │ Dependencies.md  │──→ External libs
+                     └──────────────────┘
+```
+
+## Relationship to AGENTS.md
+The `AGENTS.md` file at the project root is a consolidated subset of these documentation files, optimized for AI coding assistant context. It focuses on navigation aids, deviations from defaults, and tool configurations. These summary files contain the full depth.

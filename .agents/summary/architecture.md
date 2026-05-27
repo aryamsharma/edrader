@@ -1,121 +1,152 @@
-# System Architecture
+# Architecture
 
-## Architectural Style: Modular Monolith
-
-The entire application runs in a single process, on a single machine, inside a single Python async event loop. Modules are logically separated but deployed together.
-
-## Design Principles
-
-- **Correctness over feature count** — deterministic behavior is paramount
-- **Event-driven communication** — modules never directly manipulate each other's state
-- **Immutable events** — all events are frozen dataclasses, the single source of truth
-- **Broker encapsulation** — `ib_insync.IB` is private to `broker/`; domain events cross boundaries
-- **Signal-only strategies** — strategies emit signals, never place orders or touch IBKR
-- **Live/backtest parity** — same strategy code, same event flow; only data source and clock change
-
-## Runtime Model
+## Overview
+The trading platform is an **event-driven modular monolith** — a single process with a single asyncio event loop where all communication between modules flows through typed domain events on a central `EventBus`.
 
 ```mermaid
 graph TB
-    subgraph "Single Process — Single Event Loop"
-        MC[main coroutine]
-        EP[_process_events task]
-        HL[heartbeat loop task]
-        RL[reconnect loop task]
-        TD[tick dispatch task]
+    subgraph Sources
+        STR[Strategies]
+        IB[IBKR / Gateway]
+        HF[Historical Feed]
     end
 
-    MC --> EP
-    MC --> HL
-    MC --> RL
-    MC --> TD
+    subgraph Core
+        EB[EventBus]
+        EJ[EventJournal]
+    end
+
+    subgraph Processing
+        RE[RiskEngine]
+        EE[ExecutionEngine]
+        PM[PositionManager]
+        ME[MetricsEngine]
+        AG[AlertManager]
+    end
+
+    subgraph Execution
+        SA[SimulatedBroker]
+        BA[BrokerAdapter]
+        MDF[MarketDataFeed]
+    end
+
+    STR -->|SignalGeneratedEvent| EB
+    IB -->|MarketTickEvent| EB
+    HF -->|BarCloseEvent| EB
+    EB --> RE
+    RE -->|SignalApprovedEvent| EB
+    EB --> EE
+    EE -->|OrderRequestedEvent| EB
+    EB --> SA
+    EB --> BA
+    SA -->|OrderFilledEvent| EB
+    BA -->|OrderFilledEvent| EB
+    EB --> PM
+    PM -->|ExposureUpdatedEvent| EB
+    EB --> ME
+    EB --> AG
+    EB -.->|logs all| EJ
 ```
 
-## Event Flow
+## Key Design Decisions
 
+### Event-Driven Architecture
+- `EventBus` is the central nervous system — a typed async pub/sub with dual priority queues (HIGH/CRITICAL vs NORMAL/LOW)
+- All components subscribe to specific event types and publish events
+- No direct method calls between business modules (except `broker/` internals)
+- EventJournal provides SQLite append-only persistence for replay/audit
+
+### Component Lifecycle
+Every component follows a consistent lifecycle pattern:
 ```mermaid
-sequenceDiagram
-    participant P as Publisher
-    participant EB as EventBus
-    participant PQ as PriorityQueue
-    participant DI as _dispatch
-    participant S1 as Subscriber A
-    participant S2 as Subscriber B
-    participant EJ as EventJournal
-
-    P->>EB: publish(event)
-    EB->>PQ: put(event)
-    PQ-->>EB: queued
-    loop process_events
-        PQ->>DI: get()
-        DI->>S1: handler(event)
-        DI->>S2: handler(event)
-        DI->>EJ: append(event)
-    end
+stateDiagram-v2
+    [*] --> Stopped
+    Stopped --> Running: start()
+    Running --> Stopped: stop()
+    Running --> Running: start() [idempotent, no-op]
+    Stopped --> Stopped: stop() [idempotent, no-op]
 ```
 
-## Priority Routing
+Each component:
+- Has a boolean `is_running` property
+- Subscribes to events on `start()` and returns unsubscribe callables
+- Unsubscribes on `stop()`
+- Ignores events received when `_running` is False
 
+### Event Bus Architecture
 ```mermaid
 graph LR
-    P[Publisher] --> N[NORMAL/LOW queue]
-    P --> H[HIGH/CRITICAL queue]
-    H --> D[Dispatcher - polls high first]
-    N --> D
-    D --> S1[Subscribers]
-    D --> S2[Wildcard subscribers]
+    subgraph Publishers
+        A[Strategy]
+        B[MarketData]
+        C[IBKRClient]
+    end
+    A -->|put| PQ[PriorityQueue]
+    B -->|put| PQ
+    C -->|put| PQ
+    PQ -->|get| DP[Dispatch Loop]
+    DP -->|dispatch| S1[Subscriber 1]
+    DP -->|dispatch| S2[Subscriber 2]
+    DP -->|dispatch| S3[Subscriber 3]
 ```
 
-## Module Architecture
+- `PriorityQueue` wraps two `asyncio.Queue` instances (high/normal)
+- Dispatch loop runs in a single `asyncio.Task`, draining events sequentially
+- Errors in handlers don't crash the bus — they're logged and optionally passed to an error handler
+- `drain()` awaits both queues to be empty (for test synchronization)
+
+### IBKR Isolation Boundary
+- `ib_insync` types (`IB`, `Contract`, `Ticker`, `Trade`) are typed as `Any` and never appear outside `broker/`
+- All cross-module communication uses domain events defined in `events/event_types.py`
+- The `broker/` module has three components:
+  - `IBKRClient` — connection lifecycle, heartbeat, reconnection
+  - `MarketDataFeed` — tick subscriptions, bar aggregation
+  - `BrokerAdapter` — order placement, status tracking, fill handling
+
+### Live vs Backtest Parity
+- Same code path executes both live and in backtest
+- Live: `IBKRClient` + `MarketDataFeed` + `BrokerAdapter` (real IBKR)
+- Backtest: `ReplayClock` + `HistoricalFeed` + `SimulatedBroker` (simulated)
+- All downstream components (`RiskEngine`, `ExecutionEngine`, `PositionManager`, etc.) remain identical
 
 ```mermaid
 graph TB
-    subgraph "app"
-        C[config.py]
-        B[bootstrap.py]
-        M[main.py]
+    subgraph Live
+        IB[IBKR Gateway]
+        MDF[MarketDataFeed]
+        BA[BrokerAdapter]
     end
-
-    subgraph "broker"
-        I[ibkr_client.py]
-        MD[market_data.py]
+    subgraph Backtest
+        RC[ReplayClock]
+        HF[HistoricalFeed]
+        SB[SimulatedBroker]
     end
-
-    subgraph "events"
-        ET[event_types.py]
-        EB[bus.py]
-        EJ[journal.py]
+    subgraph Shared
+        EB[EventBus]
+        RE[RiskEngine]
+        EE[ExecutionEngine]
+        PM[PositionManager]
     end
-
-    subgraph "monitoring"
-        L[logging.py]
-    end
-
-    subgraph "stub modules"
-        EX[execution/]
-        PE[persistence/]
-        PO[portfolio/]
-        RE[replay/]
-        RI[risk/]
-        ST[strategies/]
-    end
-
-    I --> EB
-    MD --> EB
-    MD --> I
-    B --> C
-    B --> EB
-    M --> B
-    EB --> EJ
-    L -.-> I
-    L -.-> MD
-    L -.-> EB
+    Live --> EB
+    Backtest --> EB
+    EB --> Shared
 ```
 
-## Key Architectural Constraints
+## Module Dependency Graph
+```mermaid
+graph TD
+    app --> events
+    app --> monitoring
+    broker --> events
+    broker --> app
+    events --> monitoring
+    execution --> events
+    monitoring --> events
+    persistence --> events
+    portfolio --> events
+    replay --> events
+    risk --> events
+    strategies --> events
+```
 
-1. **IBKR types must NOT leak outside `broker/`** — `ib_insync.IB` is typed as `Any` in broker module, `IB()` constructor has `# type: ignore[no-untyped-call]`
-2. **Strategies emit signals only** — they never place orders, call IBKR, or manage positions
-3. **Same code path for live and backtest** — only the data source/clock changes
-4. **All critical state transitions occur through events** — events are the single source of truth
-5. **Modules communicate via EventBus** — no direct imports between domain modules
+Note: All modules depend on `events/` (for event types and bus) and `monitoring/` (for logging). The `app/` module wires everything together at startup.

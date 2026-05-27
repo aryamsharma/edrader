@@ -1,142 +1,127 @@
-# Interfaces and Integration Points
+# Interfaces & Integration Points
 
-## EventBus Public API
+## Event Contracts
 
-```python
-class EventBus:
-    def subscribe(
-        event_type: type[BaseEvent],
-        handler: AsyncHandler,  # Callable[[BaseEvent], Awaitable[None]]
-        event_filter: EventFilter | None = None,  # Callable[[BaseEvent], bool]
-        name: str = "",
-    ) -> None
+All inter-module communication uses typed domain events. Below is the complete event catalog with publishers and subscribers.
 
-    def subscribe_all(
-        handler: AsyncHandler,
-        event_filter: EventFilter | None = None,
-        name: str = "",
-    ) -> None
+### Market Data Events
 
-    def unsubscribe(
-        event_type: type[BaseEvent],
-        handler: AsyncHandler,
-    ) -> None
+| Event | Publisher(s) | Fields | Subscribers |
+|---|---|---|---|
+| `MarketTickEvent` | `MarketDataFeed` | symbol, price, volume, bid, ask | `PositionManager`, `ExecutionEngine`, `RiskEngine`, `SimulatedBroker` |
+| `BarCloseEvent` | `MarketDataFeed`, `HistoricalFeed` | symbol, open, high, low, close, volume | `SimulatedBroker`, Strategies |
+| `MarketOpenEvent` | `MarketDataFeed` | symbol | — |
+| `MarketCloseEvent` | `MarketDataFeed` | symbol | — |
 
-    async def publish(event: BaseEvent) -> None
-    async def start() -> None
-    async def stop() -> None
-    async def drain() -> None
+### Signal Events
+
+| Event | Publisher(s) | Fields | Subscribers |
+|---|---|---|---|
+| `SignalGeneratedEvent` | Strategies | strategy_id, symbol, side, confidence, suggested_size | `RiskEngine` |
+| `SignalApprovedEvent` | `RiskEngine` | strategy_id, symbol, side, confidence, suggested_size | `ExecutionEngine` |
+| `SignalRejectedEvent` | `RiskEngine` | strategy_id, symbol, reason | `AlertManager` |
+| `StrategyErrorEvent` | Strategies | strategy_id, error | — |
+
+### Order Events
+
+| Event | Publisher(s) | Fields | Subscribers |
+|---|---|---|---|
+| `OrderRequestedEvent` | `ExecutionEngine` | symbol, side, quantity, order_type, limit_price | `SimulatedBroker`, `BrokerAdapter` |
+| `OrderSubmittedEvent` | `SimulatedBroker`, `BrokerAdapter`, `ExecutionEngine` | order_id, symbol, side, quantity, order_type, limit_price | `ExecutionEngine` |
+| `OrderFilledEvent` | `SimulatedBroker`, `BrokerAdapter` | order_id, symbol, side, fill_price, fill_quantity | `PositionManager`, `RiskEngine`, `MetricsEngine`, `ExecutionEngine` |
+| `OrderCancelledEvent` | `BrokerAdapter` | order_id, reason | — |
+| `OrderStatusChangedEvent` | `SimulatedBroker`, `BrokerAdapter` | order_id, status | — |
+
+### Position/Portfolio Events
+
+| Event | Publisher(s) | Fields | Subscribers |
+|---|---|---|---|
+| `PositionOpenedEvent` | `PositionManager` | symbol, quantity, avg_cost | `MetricsEngine` |
+| `PositionClosedEvent` | `PositionManager` | symbol, realized_pnl | `MetricsEngine` |
+| `PnLUpdatedEvent` | `PositionManager` | symbol, unrealized_pnl, realized_pnl | — |
+| `PositionUpdate` | `PositionManager` | symbol, position, avg_cost, market_price | — |
+| `ExposureUpdatedEvent` | `PositionManager` | gross_exposure, net_exposure, leverage, long_count, short_count, equity | `RiskEngine`, `MetricsEngine` |
+| `ExposureLimitEvent` | `PositionManager` | current_exposure, limit | — |
+| `AccountSummaryUpdate` | — | cash, buying_power, gross_position_value, net_liquidation | — |
+
+### Risk Events
+
+| Event | Publisher(s) | Fields | Subscribers |
+|---|---|---|---|
+| `RiskViolationEvent` | `RiskEngine` | strategy_id, rule, reason | `AlertManager` |
+| `TradingHaltedEvent` | `RiskEngine` | reason | `AlertManager` |
+
+### Connection Events
+
+| Event | Publisher(s) | Fields | Subscribers |
+|---|---|---|---|
+| `BrokerDisconnectedEvent` | `IBKRClient` | reason | `RiskEngine`, `AlertManager` |
+| `BrokerReconnectedEvent` | `IBKRClient` | attempts | `MarketDataFeed`, `AlertManager` |
+| `HeartbeatEvent` | `IBKRClient` | (none) | `AlertManager` |
+
+### Monitoring Events
+
+| Event | Publisher(s) | Fields | Subscribers |
+|---|---|---|---|
+| `AlertEvent` | `AlertManager` | alert_type, message, severity | — |
+
+## Main Event Flow (Signal → Fill)
+
+```mermaid
+sequenceDiagram
+    participant S as Strategy
+    participant RE as RiskEngine
+    participant EE as ExecutionEngine
+    participant BR as SimulatedBroker
+    participant PM as PositionManager
+    participant ME as MetricsEngine
+
+    S->>RE: SignalGeneratedEvent
+    RE->>EE: SignalApprovedEvent (or SignalRejectedEvent)
+    EE->>BR: OrderRequestedEvent
+    BR->>BR: Apply slippage, commission
+    BR->>PM: OrderFilledEvent
+    PM->>ME: ExposureUpdatedEvent
+    PM->>ME: PositionClosedEvent (if closed)
 ```
 
-## BaseEvent Serialization Interface
+## BC Boundaries
 
-```python
-class BaseEvent:
-    def to_dict() -> dict[str, Any]
-    @classmethod def from_dict(data: dict[str, Any]) -> BaseEvent
+```
+┌─────────────────────────────────────────────────────┐
+│                    broker/                           │
+│  IBKRClient | MarketDataFeed | BrokerAdapter        │
+│  (ib_insync types: IB, Contract, Ticker, Trade)     │
+└────────┬────────────────────────────────────────────┘
+         │ Only domain events cross this boundary
+         ▼
+┌─────────────────────────────────────────────────────┐
+│              All other modules                       │
+│  No ib_insync imports allowed                       │
+│  Communication via EventBus only                   │
+└─────────────────────────────────────────────────────┘
 ```
 
-## EventJournal Interface
+## Component Registration Pattern
+
+Every subscribable component follows this pattern for event subscriptions:
 
 ```python
-class EventJournal:
-    def append(event: BaseEvent) -> int  # returns sequence number
-    def replay(
-        event_types: list[type[BaseEvent]] | None = None,
-        since_sequence: int = 0,
-        limit: int | None = None,
-    ) -> list[BaseEvent]
-    def count() -> int
-    @property def last_sequence() -> int
-    def close() -> None
+async def start(self) -> None:
+    self._running = True
+    self._some_unsub = await self._subscribe_some_event()
+
+async def stop(self) -> None:
+    self._running = False
+    if self._some_unsub is not None:
+        self._some_unsub()
+        self._some_unsub = None
+
+async def _subscribe_some_event(self) -> Any:
+    async def handler(event: BaseEvent) -> None:
+        await self._on_some_event(event)
+    self._event_bus.subscribe(SomeEvent, handler, name="component_name")
+    return lambda: self._event_bus.unsubscribe(SomeEvent, handler)
 ```
 
-## IBKRClient Interface
-
-```python
-class IBKRClient:
-    def __init__(
-        config: BrokerConfig,
-        event_bus: EventBus,
-        ib: Any = None,                    # Injectable mock for testing
-        heartbeat_interval: float = 5.0,
-    ) -> None
-
-    async def connect() -> None
-    async def disconnect() -> None
-    @property def is_connected() -> bool
-```
-
-## MarketDataFeed Interface
-
-```python
-class MarketDataFeed:
-    def __init__(
-        ib: Any,
-        event_bus: EventBus,
-        default_bar_size_seconds: float = 60.0,
-    ) -> None
-
-    async def start() -> None
-    async def stop() -> None
-    async def subscribe_symbol(
-        symbol: str,
-        exchange: str = "SMART",
-        currency: str = "USD",
-        sec_type: str = "STK",
-        bar_size_seconds: float | None = None,
-    ) -> None
-    async def subscribe_symbols(
-        symbols: list[str],
-        exchange: str = "SMART",
-        currency: str = "USD",
-        sec_type: str = "STK",
-        bar_size_seconds: float | None = None,
-    ) -> None
-    async def unsubscribe(symbol: str) -> None
-    async def unsubscribe_all() -> None
-    @property def subscriptions() -> list[str]
-    @property def is_running() -> bool
-```
-
-## Configuration Loading Interface
-
-```python
-# config.py
-class TradingConfig(BaseModel): ...
-
-def load_config(path: Path) -> TradingConfig
-```
-
-## Logging Interface
-
-```python
-# monitoring/logging.py
-def setup_logging(log_level: str = "DEBUG") -> None
-def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger
-```
-
-## ib_insync Wrapper Boundaries
-
-The `ib_insync` library is used only within `broker/`:
-
-| ib_insync API | Wrapped In | Notes |
-|---|---|---|
-| `IB()` | `ibkr_client.py` | Constructor, `# type: ignore[no-untyped-call]` |
-| `ib.connectAsync()` | `ibkr_client.py` | Async connection |
-| `ib.disconnect()` | `ibkr_client.py` | Sync disconnect |
-| `ib.isConnected()` | `ibkr_client.py` | Connection check |
-| `ib.pendingTickersEvent` | `market_data.py` | Tick subscription event |
-| `ib.reqMktData()` | `market_data.py` | Market data request |
-| `ib.cancelMktData()` | `market_data.py` | Cancel subscription |
-| `Stock()` / `Contract()` | `market_data.py` | Contract creation |
-| `ib.disconnectedEvent` | `ibkr_client.py` | Disconnect handler |
-
-## Integration Points for Stub Modules
-
-When implementing stub modules, they integrate via:
-
-1. **EventBus subscription**: Subscribe to relevant event types
-2. **EventBus publication**: Publish domain events for other modules
-3. **Configuration**: Add config sections to `TradingConfig`
-4. **Logging**: Call `get_logger(__name__)` for structured logging
+Each subscription returns an unsubscribe callable stored as `Any` (since callable signatures are complex).

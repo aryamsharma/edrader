@@ -1,35 +1,86 @@
-# External Dependencies
+# Dependencies
 
 ## Runtime Dependencies
 
-| Package | Version | Used In | Purpose |
-|---|---|---|---|
-| pydantic | ^2.0 | `app/config.py` | `BaseModel` configuration hierarchy with validation and `Field(default_factory=...)` |
-| pydantic-settings | ^2.0 | (declared but unused) | Environment variable override support for config |
-| structlog | ^24.0 | `monitoring/logging.py`, all modules | Structured logging with context vars, ISO timestamps, JSON output |
-| pyyaml | ^6.0 | `app/config.py` | YAML config file parsing via `yaml.safe_load()` |
-| sqlalchemy | ^2.0 | `events/journal.py` | `create_engine`, `Session`, `DeclarativeBase` for append-only event journal |
-| ib-insync | ^0.9.86 | `broker/ibkr_client.py`, `broker/market_data.py` | IBKR API wrapper — `IB()`, `Stock()`, `Contract()` |
+### pydantic ^2.0
+- **Purpose:** Configuration management with type validation
+- **Usage patterns:**
+  - `BaseModel` subclasses for each config section (`AppConfig`, `BrokerConfig`, etc.)
+  - `Field(default_factory=...)` for nested default instances
+  - YAML loading via `yaml.safe_load()` → `TradingConfig(**raw)`
+  - `Literal` types for constrained string fields (e.g., `environment: Literal["development", "paper", "live"]`)
+- **Files:** `app/config.py`
 
-## Dev Dependencies
+### structlog ^24.0
+- **Purpose:** Structured, contextual logging
+- **Usage patterns:**
+  - `get_logger(__name__)` in every module
+  - `contextvars` integration for request/task-level context
+  - Console renderer for TTY, JSON renderer for non-TTY
+  - Filtering bound loggers via `structlog.make_filtering_bound_logger`
+  - Log calls use event name + keyword args: `logger.info("event_name", key=value)`
+- **Files:** `monitoring/logging.py` (setup), used in every module
 
-| Package | Version | Purpose |
-|---|---|---|
-| pytest | ^8.0 | Test framework with fixtures, parameterization |
-| pytest-asyncio | ^0.24 | Async test support (`asyncio_mode = auto`) |
-| pytest-cov | ^5.0 | Coverage reporting |
-| ruff | ^0.7 | Linting (`ruff check`) and formatting (`ruff format`) |
-| mypy | ^1.12 | Static type checking (strict mode with `disallow_untyped_defs`) |
-| pre-commit | ^4.0 | Git hook framework running ruff, mypy, trailing-whitespace, YAML/JSON checks |
+### pyyaml ^6.0
+- **Purpose:** YAML config file parsing
+- **Usage patterns:** `yaml.safe_load()` in `load_config()`
+- **Files:** `app/config.py`
 
-## Dependency Gotchas
+### SQLAlchemy ^2.0
+- **Purpose:** ORM for persistence
+- **Usage patterns:**
+  - `DeclarativeBase` for model definitions
+  - Column types: `Integer`, `String`, `Float`, `DateTime`
+  - `create_engine()` with SQLite (default: `sqlite:///data/trading.db`)
+  - Manual session management via `Session()` + commit/rollback
+  - No async — runs in sync via `Session` (not `AsyncSession`)
+  - `contextmanager` pattern for session lifecycle in `DatabaseManager`
+- **Files:** `persistence/database.py`, `persistence/models.py`, `events/journal.py`
 
-- **ib_insync has no type stubs** — must use `# type: ignore[no-untyped-call]` on `IB()` constructor and typed as `Any` in broker module
+### ib_insync ^0.9.86
+- **Purpose:** Interactive Brokers API client
+- **Usage patterns:**
+  - No type stubs — typed as `Any`, `# type: ignore[no-untyped-call]` on constructor
+  - `IB()` constructor, `.connectAsync()`, `.disconnect()`
+  - `disconnectedEvent.connect()` / `.disconnect()` for event handlers
+  - `pendingTickersEvent` for market data callbacks
+  - `orderStatusEvent`, `execDetailsEvent` for order tracking
+  - `reqMktData()`, `cancelMktData()` for subscriptions
+  - `placeOrder()`, `cancelOrder()` for order management
+  - `Stock()`, `Contract()`, `MarketOrder()`, `LimitOrder()`, `StopOrder()` helper classes
+  - `Contract()` second arg is `sec_type` (str) but mypy sees it as `int` — `# type: ignore[arg-type]`
+- **Files:** `broker/ibkr_client.py`, `broker/market_data.py`, `broker/order_management.py`
+
+## Development Dependencies
+
+### pytest ^8.0
+- **Purpose:** Test framework
+- **Configuration:** `asyncio_mode = auto`, `pythonpath = ["src"]`
+- **Test convention:** Async tests by default, class-based grouping
+- **Plugins:** `pytest-asyncio`, `pytest-cov`
+
+### ruff ^0.7
+- **Purpose:** Linting and formatting
+- **Configuration:** Line-length 100, double quotes, rule set `E,F,I,N,W,UP,B,SIM,ARG`
+- **Commands:** `ruff check .`, `ruff format .`
+
+### mypy ^1.12
+- **Purpose:** Static type checking
+- **Configuration:** Strict mode, excludes `tests/`
+- **Files:** Strict checks on all `src/` files
+
+### pre-commit ^4.0
+- **Purpose:** Git hooks
+- **Configuration:** `.pre-commit-config.yaml`
+
+### alembic ^1.13
+- **Purpose:** Database migrations
+- **Files:** `migrations/`, `alembic.ini`
+
+## Design Constraints
+
+- **No strict type stubs for ib_insync** — `Any` typing required in broker module
 - **SQLAlchemy column access** needs `# type: ignore[assignment]` / `# type: ignore[arg-type]` for mypy compatibility
-- **reconnect_interval** in `BrokerConfig` is `float` (not int) — important for test speed
-- **poetry.lock** is gitignored — excluded from version control intentionally
-- **pydantic-settings** is declared but not yet used in any source file
-
-## Third-Party Type Stubs
-
-No third-party type stubs are installed. `ignore_missing_imports = true` in mypy config suppresses errors for `ib_insync` and `structlog`.
+- **No `__init__.py` re-exports** — all imports direct from their modules
+- **No external web framework** — no FastAPI/Flask; monitoring via internal metrics only
+- **No async DB** — persistence is sync in a threadpool (SQLAlchemy sync sessions)
