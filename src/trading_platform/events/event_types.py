@@ -236,3 +236,10 @@ class BrokerReconnectedEvent(BaseEvent):
 @dataclass(frozen=True, slots=True)
 class HeartbeatEvent(BaseEvent):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class AlertEvent(BaseEvent):
+    alert_type: str = ""
+    message: str = ""
+    severity: str = "INFO"
