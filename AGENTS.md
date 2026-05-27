@@ -3,7 +3,7 @@
 ## Commands
 
 ```sh
-poetry run pytest -k "not test_stop_during_run"  # All 435 tests (excl. 1 flaky)
+poetry run pytest -k "not test_stop_during_run"  # All 436 tests (excl. 1 flaky)
 poetry run ruff check .                # Lint (0 errors expected)
 poetry run ruff check --fix .          # Lint + fix
 poetry run ruff format .               # Format (line-length 100, double quotes)
@@ -89,12 +89,12 @@ src/trading_platform/
 ├── risk/          # engine.py (6 risk checks + kill switch)
 └── strategies/    # base.py (Strategy/StrategyLoader), examples/ (sma_crossover, mean_reversion)
 
-tests/  # 15 test files, 435 tests, pytest-asyncio with asyncio_mode=auto
+tests/  # 20 test files, 436 tests, pytest-asyncio with asyncio_mode=auto
 ```
 
 ## Implementation Status
 
-All 10 phases complete (P0–P10). 435 tests across 15 files.
+All 10 phases complete (P0–P10). 436 tests across 20 files (1 flaky excluded: `test_stop_during_run`).
 
 ## Architecture Principles
 
@@ -146,7 +146,8 @@ sequenceDiagram
 - `ib_insync.IB` has no type stubs — `# type: ignore[no-untyped-call]` on `IB()` constructor
 - SQLAlchemy column access needs `# type: ignore[assignment]` / `# type: ignore[arg-type]`
 - `reconnect_interval` in `BrokerConfig` is `float` (not int)
-- `configs/` and `data/` are empty at setup; `data/trading.db` is gitignored via `*.db` and `*.sqlite`
+- `.agents/summary/` contains full documentation: architecture, components, interfaces, workflows, design docs
+- `data/` is empty at setup; `data/trading.db` is gitignored via `*.db` and `*.sqlite`
 - `poetry.lock` IS in `.gitignore` (intentional)
 - `Contract()` second arg is `sec_type` (str) but mypy sees `int` — `# type: ignore[arg-type]`
 - Bar aggregation is tick-triggered: bar emitted when a tick arrives AFTER the time window
