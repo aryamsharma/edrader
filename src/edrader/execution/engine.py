@@ -7,6 +7,7 @@ from edrader.events.bus import EventBus
 from edrader.events.event_types import (
     BaseEvent,
     MarketTickEvent,
+    OrderCancelledEvent,
     OrderFilledEvent,
     OrderRequestedEvent,
     OrderSubmittedEvent,
@@ -39,6 +40,8 @@ class ExecutionEngine:
         self._approved_unsub: Any = None
         self._tick_unsub: Any = None
         self._submitted_unsub: Any = None
+        self._filled_unsub: Any = None
+        self._cancelled_unsub: Any = None
 
     @property
     def is_running(self) -> bool:
@@ -59,18 +62,28 @@ class ExecutionEngine:
         self._approved_unsub = await self._subscribe_approved()
         self._tick_unsub = await self._subscribe_ticks()
         self._submitted_unsub = await self._subscribe_submitted()
+        self._filled_unsub = await self._subscribe_filled()
+        self._cancelled_unsub = await self._subscribe_cancelled()
         logger.info("execution_engine_started")
 
     async def stop(self) -> None:
         if not self._running:
             return
         self._running = False
-        for unsub in (self._approved_unsub, self._tick_unsub, self._submitted_unsub):
+        for unsub in (
+            self._approved_unsub,
+            self._tick_unsub,
+            self._submitted_unsub,
+            self._filled_unsub,
+            self._cancelled_unsub,
+        ):
             if unsub is not None:
                 unsub()
         self._approved_unsub = None
         self._tick_unsub = None
         self._submitted_unsub = None
+        self._filled_unsub = None
+        self._cancelled_unsub = None
         self._last_order_time.clear()
         self._active_orders.clear()
         self._prices.clear()
@@ -159,6 +172,12 @@ class ExecutionEngine:
             return
         self._active_orders.pop(event.order_id, None)
 
+    async def _on_cancelled(self, event: BaseEvent) -> None:
+        assert isinstance(event, OrderCancelledEvent)
+        if not self._running:
+            return
+        self._active_orders.pop(event.order_id, None)
+
     def _throttle_remaining(self, symbol: str) -> float:
         last = self._last_order_time.get(symbol)
         if last is None:
@@ -187,3 +206,17 @@ class ExecutionEngine:
 
         self._event_bus.subscribe(OrderSubmittedEvent, handler, name="execution_engine_submitted")
         return lambda: self._event_bus.unsubscribe(OrderSubmittedEvent, handler)
+
+    async def _subscribe_filled(self) -> Any:
+        async def handler(event: BaseEvent) -> None:
+            await self._on_filled(event)
+
+        self._event_bus.subscribe(OrderFilledEvent, handler, name="execution_engine_filled")
+        return lambda: self._event_bus.unsubscribe(OrderFilledEvent, handler)
+
+    async def _subscribe_cancelled(self) -> Any:
+        async def handler(event: BaseEvent) -> None:
+            await self._on_cancelled(event)
+
+        self._event_bus.subscribe(OrderCancelledEvent, handler, name="execution_engine_cancelled")
+        return lambda: self._event_bus.unsubscribe(OrderCancelledEvent, handler)
