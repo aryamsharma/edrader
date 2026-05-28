@@ -103,5 +103,5 @@ class ReplayEngine:
         delta = (next_event.timestamp - current.timestamp).total_seconds()
         if delta <= 0:
             return
-        adjusted = delta / self._clock.speed
+        adjusted = delta / max(self._clock.speed, 0.001)
         await asyncio.sleep(adjusted)

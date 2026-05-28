@@ -58,6 +58,6 @@ class ReplayClock:
 
     def reset(self) -> None:
         self._elapsed = 0.0
-        self._speed = 1.0
+        self.speed = 1.0
         self._paused = False
         logger.info("replay_clock_reset")

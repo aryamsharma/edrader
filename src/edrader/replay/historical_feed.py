@@ -36,7 +36,11 @@ class HistoricalFeed:
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> list[BarCloseEvent]:
-        rows = self._read_csv(path)
+        try:
+            rows = self._read_csv(path)
+        except OSError:
+            logger.error("historical_feed_read_failed", path=str(path))
+            raise
         events: list[BarCloseEvent] = []
 
         for row in rows:

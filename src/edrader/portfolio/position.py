@@ -68,14 +68,13 @@ class PositionManager:
 
     @property
     def total_unrealized_pnl(self) -> float:
-        total = 0.0
-        for sym, pos in self._positions.items():
-            total += self._unrealized_pnl(sym, pos)
+        total, _ = self._compute_unrealized_pnl()
         return total
 
     @property
     def total_pnl(self) -> float:
-        return self.total_realized_pnl + self.total_unrealized_pnl
+        total_upnl, _ = self._compute_unrealized_pnl()
+        return self.total_realized_pnl + total_upnl
 
     @property
     def equity(self) -> float:
@@ -160,10 +159,11 @@ class PositionManager:
                 )
             )
 
+        upnl = self._unrealized_pnl(event.symbol, pos)
         await self._event_bus.publish(
             PnLUpdatedEvent(
                 symbol=event.symbol,
-                unrealized_pnl=self._unrealized_pnl(event.symbol, pos),
+                unrealized_pnl=upnl,
                 realized_pnl=pos.realized_pnl,
                 source="position_manager",
             )
@@ -178,12 +178,14 @@ class PositionManager:
             realized_pnl=pos.realized_pnl,
         )
 
-        await self._publish_exposure()
+        total_upnl, _ = self._compute_unrealized_pnl()
+        eq = self._initial_capital + self.total_realized_pnl + total_upnl
+        await self._publish_exposure(equity=eq)
 
-    async def _publish_exposure(self) -> None:
+    async def _publish_exposure(self, equity: float | None = None) -> None:
         snap = self.exposure()
         lev = self.leverage
-        eq = self.equity
+        eq = self.equity if equity is None else equity
         await self._event_bus.publish(
             ExposureUpdatedEvent(
                 gross_exposure=snap.gross_exposure,
@@ -264,6 +266,15 @@ class PositionManager:
             return (pos.avg_cost - price) * abs(pos.quantity)
         return 0.0
 
+    def _compute_unrealized_pnl(self) -> tuple[float, dict[str, float]]:
+        per_symbol: dict[str, float] = {}
+        total = 0.0
+        for sym, pos in self._positions.items():
+            upnl = self._unrealized_pnl(sym, pos)
+            per_symbol[sym] = upnl
+            total += upnl
+        return total, per_symbol
+
     async def _on_fill(self, event: BaseEvent) -> None:
         assert isinstance(event, OrderFilledEvent)
         await self.process_fill(event)
@@ -299,7 +310,9 @@ class PositionManager:
                     source="position_manager",
                 )
             )
-            await self._publish_exposure()
+            total_upnl, _ = self._compute_unrealized_pnl()
+            eq = self._initial_capital + self.total_realized_pnl + total_upnl
+            await self._publish_exposure(equity=eq)
 
     def _persist_position(self, symbol: str) -> None:
         if self._db_manager is None:

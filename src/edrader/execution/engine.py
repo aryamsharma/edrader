@@ -126,6 +126,7 @@ class ExecutionEngine:
             suggested_size=event.suggested_size,
             price=price,
             equity=self._equity,
+            symbol=event.symbol,
         )
 
         if final_size <= 0:
