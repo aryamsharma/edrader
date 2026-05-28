@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+from edrader.broker import task_error_logger
 from edrader.events.bus import EventBus
 from edrader.events.event_types import (
     BarCloseEvent,
@@ -191,7 +192,10 @@ class MarketDataFeed:
             return
         tickers = list(self._ib.pendingTickers)
         if tickers:
-            asyncio.create_task(self._process_tickers(tickers))
+            task = asyncio.create_task(self._process_tickers(tickers))
+            task.add_done_callback(
+                task_error_logger(__name__, "market_data_background_task_failed")
+            )
 
     async def _process_tickers(self, tickers: list[Any]) -> None:
         for ticker in tickers:

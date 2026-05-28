@@ -6,6 +6,7 @@ from typing import Any
 from edrader.events.bus import EventBus
 from edrader.events.event_types import (
     BaseEvent,
+    ExposureUpdatedEvent,
     MarketTickEvent,
     OrderCancelledEvent,
     OrderFilledEvent,
@@ -37,11 +38,13 @@ class ExecutionEngine:
         self._last_order_time: dict[str, float] = {}
         self._active_orders: dict[str, dict[str, Any]] = {}
         self._prices: dict[str, float] = {}
+        self._equity: float = 100_000.0
         self._approved_unsub: Any = None
         self._tick_unsub: Any = None
         self._submitted_unsub: Any = None
         self._filled_unsub: Any = None
         self._cancelled_unsub: Any = None
+        self._exposure_unsub: Any = None
 
     @property
     def is_running(self) -> bool:
@@ -64,6 +67,7 @@ class ExecutionEngine:
         self._submitted_unsub = await self._subscribe_submitted()
         self._filled_unsub = await self._subscribe_filled()
         self._cancelled_unsub = await self._subscribe_cancelled()
+        self._exposure_unsub = await self._subscribe_exposure()
         logger.info("execution_engine_started")
 
     async def stop(self) -> None:
@@ -76,6 +80,7 @@ class ExecutionEngine:
             self._submitted_unsub,
             self._filled_unsub,
             self._cancelled_unsub,
+            self._exposure_unsub,
         ):
             if unsub is not None:
                 unsub()
@@ -84,6 +89,7 @@ class ExecutionEngine:
         self._submitted_unsub = None
         self._filled_unsub = None
         self._cancelled_unsub = None
+        self._exposure_unsub = None
         self._last_order_time.clear()
         self._active_orders.clear()
         self._prices.clear()
@@ -115,12 +121,11 @@ class ExecutionEngine:
                 return
 
         price = self._prices.get(event.symbol)
-        equity = 100_000.0
 
         final_size = self._sizing_engine.compute_size(
             suggested_size=event.suggested_size,
             price=price,
-            equity=equity,
+            equity=self._equity,
         )
 
         if final_size <= 0:
@@ -165,6 +170,12 @@ class ExecutionEngine:
             "quantity": event.quantity,
             "order_type": event.order_type,
         }
+
+    async def _on_exposure_update(self, event: BaseEvent) -> None:
+        assert isinstance(event, ExposureUpdatedEvent)
+        if not self._running:
+            return
+        self._equity = event.equity
 
     async def _on_filled(self, event: BaseEvent) -> None:
         assert isinstance(event, OrderFilledEvent)
@@ -213,6 +224,13 @@ class ExecutionEngine:
 
         self._event_bus.subscribe(OrderFilledEvent, handler, name="execution_engine_filled")
         return lambda: self._event_bus.unsubscribe(OrderFilledEvent, handler)
+
+    async def _subscribe_exposure(self) -> Any:
+        async def handler(event: BaseEvent) -> None:
+            await self._on_exposure_update(event)
+
+        self._event_bus.subscribe(ExposureUpdatedEvent, handler, name="execution_engine_exposure")
+        return lambda: self._event_bus.unsubscribe(ExposureUpdatedEvent, handler)
 
     async def _subscribe_cancelled(self) -> Any:
         async def handler(event: BaseEvent) -> None:

@@ -4,6 +4,7 @@ import pytest
 
 from edrader.events.bus import EventBus
 from edrader.events.event_types import (
+    ExposureUpdatedEvent,
     MarketTickEvent,
     OrderRequestedEvent,
     OrderSubmittedEvent,
@@ -80,6 +81,12 @@ class TestExecutionEngineLifecycle:
     ) -> None:
         assert engine.is_running is True
         assert event_bus.subscriber_count_for(OrderSubmittedEvent) >= 1
+
+    async def test_subscribes_to_exposure_updates(
+        self, engine: ExecutionEngine, event_bus: EventBus
+    ) -> None:
+        assert engine.is_running is True
+        assert event_bus.subscriber_count_for(ExposureUpdatedEvent) >= 1
 
 
 class TestExecutionEngineSignalProcessing:
@@ -165,6 +172,13 @@ class TestExecutionEngineSignalProcessing:
         )
         await event_bus.drain()
         assert engine.active_order_count == 0
+
+    async def test_exposure_update_tracks_equity(
+        self, engine: ExecutionEngine, event_bus: EventBus
+    ) -> None:
+        await event_bus.publish(ExposureUpdatedEvent(equity=50_000.0, source="test"))
+        await event_bus.drain()
+        assert engine._equity == 50_000.0
 
 
 class TestExecutionEngineThrottle:

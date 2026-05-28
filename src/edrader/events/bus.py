@@ -93,6 +93,7 @@ class EventBus:
         self,
         max_queue_size: int = 10_000,
         error_handler: ErrorHandler | None = None,
+        subscriber_timeout: float = 5.0,
     ) -> None:
         self._queue = PriorityQueue(maxsize=max_queue_size)
         self._subscribers: dict[type[BaseEvent], list[SubscriberEntry]] = defaultdict(list)
@@ -100,6 +101,7 @@ class EventBus:
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._error_handler = error_handler
+        self._subscriber_timeout = subscriber_timeout
         self.metrics = DispatchMetrics()
 
     def subscribe(
@@ -148,11 +150,21 @@ class EventBus:
                 continue
 
             self.metrics.total_dispatched += 1
+            type_name = type(event).__name__
             try:
-                await entry.handler(event)
+                await asyncio.wait_for(entry.handler(event), timeout=self._subscriber_timeout)
+            except TimeoutError:
+                self.metrics.total_errors += 1
+                self.metrics.errors_by_type[type_name] += 1
+                logger.error(
+                    "dispatch_timeout",
+                    handler=entry.name,
+                    event_id=event.event_id,
+                    event_type=type_name,
+                    timeout=self._subscriber_timeout,
+                )
             except Exception as exc:
                 self.metrics.total_errors += 1
-                type_name = type(event).__name__
                 self.metrics.errors_by_type[type_name] += 1
                 logger.error(
                     "dispatch_error",

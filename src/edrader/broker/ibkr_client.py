@@ -7,6 +7,7 @@ from typing import Any
 from ib_insync import IB
 
 from edrader.app.config import BrokerConfig
+from edrader.broker import task_error_logger
 from edrader.events.bus import EventBus
 from edrader.events.event_types import (
     BrokerDisconnectedEvent,
@@ -89,7 +90,8 @@ class IBKRClient:
         self._disconnect_handler = self._ib.disconnectedEvent.connect(self._on_disconnected)
 
     def _on_disconnected(self) -> None:
-        asyncio.create_task(self._on_disconnected_async())
+        task = asyncio.create_task(self._on_disconnected_async())
+        task.add_done_callback(task_error_logger(__name__, "ibkr_background_task_failed"))
 
     async def _on_disconnected_async(self) -> None:
         self._connected = False

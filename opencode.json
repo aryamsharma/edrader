@@ -9,6 +9,7 @@
     }
   },
   "plugin": [
-    "opencode-skills-collection@latest"
+    "opencode-skills-collection@latest",
+    "superpowers@git+https://github.com/obra/superpowers.git"
   ]
 }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from edrader.events.bus import EventBus
@@ -310,3 +312,55 @@ async def test_subscriber_count() -> None:
     assert bus.subscriber_count == 3
     assert bus.subscriber_count_for(MarketTickEvent) == 1
     assert bus.subscriber_count_for(HeartbeatEvent) == 1
+
+
+@pytest.mark.asyncio
+async def test_slow_handler_timeout() -> None:
+    bus = EventBus(subscriber_timeout=0.01)
+    received: list[BaseEvent] = []
+
+    async def slow_handler(event: BaseEvent) -> None:  # noqa: ARG001
+        await asyncio.sleep(10)
+
+    async def fast_handler(event: BaseEvent) -> None:
+        received.append(event)
+
+    bus.subscribe(HeartbeatEvent, slow_handler, name="slow")
+    bus.subscribe(HeartbeatEvent, fast_handler, name="fast")
+    await bus.start()
+
+    event = HeartbeatEvent()
+    await bus.publish(event)
+    await bus._queue.join()
+
+    await bus.stop()
+    assert len(received) == 1  # fast handler still ran
+    assert bus.metrics.total_errors >= 1
+    assert bus.metrics.errors_by_type["HeartbeatEvent"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_slow_handler_does_not_block_other_events() -> None:
+    bus = EventBus(subscriber_timeout=0.01)
+    fast_events: list[BaseEvent] = []
+
+    async def slow_handler(event: BaseEvent) -> None:  # noqa: ARG001
+        await asyncio.sleep(10)
+
+    async def fast_handler(event: BaseEvent) -> None:
+        fast_events.append(event)
+
+    bus.subscribe(HeartbeatEvent, slow_handler, name="slow")
+    bus.subscribe(HeartbeatEvent, fast_handler, name="fast")
+    await bus.start()
+
+    await bus.publish(HeartbeatEvent())
+    await bus._queue.join()
+
+    assert len(fast_events) == 1
+
+    await bus.publish(HeartbeatEvent())
+    await bus._queue.join()
+
+    assert len(fast_events) == 2  # bus still processes after timeout
+    await bus.stop()
