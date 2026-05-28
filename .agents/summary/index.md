@@ -1,7 +1,7 @@
 # Codebase Documentation Index
 
 ## Purpose
-This directory contains structured documentation for the `trading-platform` codebase. AI assistants should use this index to locate the most relevant documentation file for a given question.
+This directory contains structured documentation for the `edrader` trading platform codebase. AI assistants should use this index to locate the most relevant documentation file for a given question.
 
 ## How to Use
 1. Read this index file first to understand what documentation is available
@@ -19,9 +19,6 @@ This directory contains structured documentation for the `trading-platform` code
 | `data_models.md` | Domain dataclasses, DB models, serialization | Understanding Position, Order, Fill data structures |
 | `workflows.md` | Key processes: signal→fill, reconnect, monitoring | Following step-by-step event flows |
 | `dependencies.md` | External libraries and their usage patterns | Understanding library usage conventions |
-| `design.md` | Original system design specification (pre-implementation blueprint) | Understanding design intent, rationale behind decisions |
-| `implementation_plan.md` | Phased implementation plan (P0–P10) | Understanding the build order, task breakdown per phase |
-| `status.md` | Implementation status tracker (up to date) | Per-phase task tracking, test suite summary, code quality gates |
 
 ## Quick Reference by Concern
 

@@ -11,7 +11,7 @@ All 10 phases complete. 436 tests (excl. 1 pre-existing flaky test `test_stop_du
 | Git repository | ✅ | .gitignore configured, 21 commits on main |
 | Poetry configuration | ✅ | pyproject.toml with deps, dev groups, lockfile |
 | Developer tooling | ✅ | ruff (lint+format), mypy (strict), pre-commit |
-| Directory structure | ✅ | All modules under `src/trading_platform/` + `tests/` |
+| Directory structure | ✅ | All modules under `src/edrader/` + `tests/` |
 | Configuration system | ✅ | YAML loading, pydantic validation, env overrides |
 | Structured logging | ✅ | structlog, JSON output, console renderer |
 

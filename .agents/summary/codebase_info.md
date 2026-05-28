@@ -1,23 +1,21 @@
 # Codebase Information
 
 ## Overview
-**Name:** trading-platform  
+**Name:** edrader  
 **Version:** 0.1.0  
 **Description:** Event-driven modular trading platform for Interactive Brokers  
 **Language:** Python 3.12+  
 **Architecture:** Modular monolith, single process, single asyncio event loop  
 
 ## Statistics
-- **Source files:** 37 Python files in `src/trading_platform/`
-- **Test files:** 22 Python files in `tests/` (435 tests)
-- **Documentation:** 3 files in `docs/`
+- **Source files:** 37 Python files in `src/edrader/` (11 module dirs, 17 modules + 12 `__init__.py` + 8 non-init source files)
+- **Test files:** 22 Python files in `tests/` (443 tests, 1 flaky excluded)
 - **Config:** YAML-based (pydantic), defaults in `pyproject.toml`
-- **Modules:** 11 directories under `src/trading_platform/`
 - **Event types:** 27 concrete event types inheriting `BaseEvent`
 
 ## Project Structure
 ```
-src/trading_platform/
+src/edrader/
 ├── __init__.py
 ├── app/           # Application bootstrap, config, main entry
 ├── broker/        # IBKR integration (client, market data, orders)
@@ -31,7 +29,9 @@ src/trading_platform/
 └── strategies/    # Strategy framework + examples (SMA, mean reversion)
 
 tests/
+├── conftest.py
 ├── test_bootstrap.py
+├── test_broker.py
 ├── test_config.py
 ├── test_event_bus.py
 ├── test_event_types.py
@@ -60,7 +60,7 @@ tests/
 | structlog ^24.0 | Structured logging | All modules via `get_logger(__name__)` |
 | SQLAlchemy ^2.0 | ORM | Domain models (OrderRecord, FillRecord, etc.) |
 | ib_insync ^0.9.86 | IBKR API | `IBKRClient`, `MarketDataFeed`, `BrokerAdapter` |
-| pytest ^8.0 | Testing | 435 tests, asyncio_mode=auto |
+| pytest ^8.0 | Testing | 443 tests, asyncio_mode=auto |
 | ruff ^0.7 | Linting/formatting | 100 char line-length, double quotes |
 | mypy ^1.12 | Type checking | Strict mode, excludes tests/ |
 | alembic ^1.13 | Migrations | Database schema migrations |
@@ -77,5 +77,5 @@ tests/
 poetry run ruff check .          # Lint (0 errors)
 poetry run ruff format .         # Format (line-length 100, double quotes)
 poetry run mypy src/             # Typecheck (strict)
-poetry run pytest -k "not test_stop_during_run"  # 435 tests pass
+poetry run pytest -k "not test_stop_during_run"  # 443 tests pass
 ```

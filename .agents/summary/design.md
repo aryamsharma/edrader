@@ -1024,7 +1024,7 @@ Benefits:
 ## 24. Internal Project Structure
 
 ```text
-trading_platform/
+edrader/
 │
 ├── app/
 │   ├── main.py

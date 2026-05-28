@@ -29,7 +29,7 @@ All inter-module communication uses typed domain events. Below is the complete e
 | `OrderRequestedEvent` | `ExecutionEngine` | symbol, side, quantity, order_type, limit_price | `SimulatedBroker`, `BrokerAdapter` |
 | `OrderSubmittedEvent` | `SimulatedBroker`, `BrokerAdapter`, `ExecutionEngine` | order_id, symbol, side, quantity, order_type, limit_price | `ExecutionEngine` |
 | `OrderFilledEvent` | `SimulatedBroker`, `BrokerAdapter` | order_id, symbol, side, fill_price, fill_quantity | `PositionManager`, `RiskEngine`, `MetricsEngine`, `ExecutionEngine` |
-| `OrderCancelledEvent` | `BrokerAdapter` | order_id, reason | — |
+| `OrderCancelledEvent` | `BrokerAdapter` | order_id, reason | `ExecutionEngine` |
 | `OrderStatusChangedEvent` | `SimulatedBroker`, `BrokerAdapter` | order_id, status | — |
 
 ### Position/Portfolio Events
@@ -40,7 +40,7 @@ All inter-module communication uses typed domain events. Below is the complete e
 | `PositionClosedEvent` | `PositionManager` | symbol, realized_pnl | `MetricsEngine` |
 | `PnLUpdatedEvent` | `PositionManager` | symbol, unrealized_pnl, realized_pnl | — |
 | `PositionUpdate` | `PositionManager` | symbol, position, avg_cost, market_price | — |
-| `ExposureUpdatedEvent` | `PositionManager` | gross_exposure, net_exposure, leverage, long_count, short_count, equity | `RiskEngine`, `MetricsEngine` |
+| `ExposureUpdatedEvent` | `PositionManager` | gross_exposure, net_exposure, leverage, long_count, short_count, equity | `RiskEngine`, `ExecutionEngine`, `MetricsEngine` |
 | `ExposureLimitEvent` | `PositionManager` | current_exposure, limit | — |
 | `AccountSummaryUpdate` | — | cash, buying_power, gross_position_value, net_liquidation | — |
 

@@ -3,7 +3,7 @@
 ## Commands
 
 ```sh
-poetry run pytest -k "not test_stop_during_run"  # All 436 tests (excl. 1 flaky)
+poetry run pytest -k "not test_stop_during_run"  # All 443 tests (excl. 1 flaky)
 poetry run ruff check .                # Lint (0 errors expected)
 poetry run ruff check --fix .          # Lint + fix
 poetry run ruff format .               # Format (line-length 100, double quotes)
@@ -77,7 +77,7 @@ graph TB
 src/edrader/
 ├── app/           # bootstrap.py (Application, lifecycle), config.py (pydantic), main.py
 ├── broker/        # ibkr_client.py (IBKR connection), market_data.py (ticks+bars),
-│                  # order_management.py (BrokerAdapter)
+│                  # order_management.py (BrokerAdapter), __init__.py (task_error_logger)
 ├── events/        # event_types.py (27 domain events), bus.py (EventBus), journal.py
 ├── execution/     # engine.py (signal→order pipeline), sizing.py (SizingEngine)
 ├── monitoring/    # logging.py (structlog setup), metrics.py (MetricsCollector),
@@ -89,18 +89,18 @@ src/edrader/
 ├── risk/          # engine.py (6 risk checks + kill switch)
 └── strategies/    # base.py (Strategy/StrategyLoader), examples/ (sma_crossover, mean_reversion)
 
-tests/  # 20 test files, 436 tests, pytest-asyncio with asyncio_mode=auto
+tests/  # 22 test files, 443 tests, pytest-asyncio with asyncio_mode=auto
 ```
 
 ## Implementation Status
 
-All 10 phases complete (P0–P10). 436 tests across 20 files (1 flaky excluded: `test_stop_during_run`).
+All 10 phases complete (P0–P10). 443 tests across 22 files (1 flaky excluded: `test_stop_during_run`).
 
 ## Architecture Principles
 
 - **Modular monolith**, single process, single asyncio event loop
 - **Events as single source of truth** — 27 frozen dataclass event types, `to_dict()`/`from_dict()` serialization
-- **`EventBus`** — dual `asyncio.Queue` (high vs normal priority), typed `subscribe()`, wildcard `subscribe_all()`, predicate filters, error handlers, `drain()` for test sync
+- **`EventBus`** — dual `asyncio.Queue` (high vs normal priority), typed `subscribe()`, wildcard `subscribe_all()`, predicate filters, error handlers, `drain()` for test sync, `subscriber_timeout` (5s default) prevents hung handlers
 - **`EventJournal`** — SQLite append-only event store for replay/audit
 - **IBKR types MUST NOT leak outside `broker/`** — `ib_insync.IB` is typed as `Any`, all cross-module communication uses domain events
 - **Strategies emit signals only** — never place orders, call IBKR, or manage positions
@@ -152,7 +152,7 @@ sequenceDiagram
 - `Contract()` second arg is `sec_type` (str) but mypy sees `int` — `# type: ignore[arg-type]`
 - Bar aggregation is tick-triggered: bar emitted when a tick arrives AFTER the time window
 - `test_stop_during_run` in `test_replay.py` is flaky (hangs) — excluded from full runs
-- `_on_filled` in `ExecutionEngine` exists but is never subscribed (dead code)
+- `task_error_logger()` in `broker/__init__.py` must be used for background task `done_callback` — catches `CancelledError`, logs other exceptions
 - No async DB — persistence uses sync SQLAlchemy sessions
 
 ## Custom Instructions
