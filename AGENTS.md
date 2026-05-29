@@ -3,7 +3,7 @@
 ## Commands
 
 ```sh
-poetry run pytest -k "not test_stop_during_run"  # All 443 tests (excl. 1 flaky)
+poetry run pytest                    # All 446 tests (0 excluded)
 poetry run ruff check .                # Lint (0 errors expected)
 poetry run ruff check --fix .          # Lint + fix
 poetry run ruff format .               # Format (line-length 100, double quotes)
@@ -94,7 +94,7 @@ tests/  # 22 test files, 443 tests, pytest-asyncio with asyncio_mode=auto
 
 ## Implementation Status
 
-All 10 phases complete (P0–P10). 443 tests across 22 files (1 flaky excluded: `test_stop_during_run`).
+All 10 phases complete (P0–P10). 446 tests across 22 files.
 
 ## Architecture Principles
 
@@ -151,7 +151,7 @@ sequenceDiagram
 - `poetry.lock` IS in `.gitignore` (intentional)
 - `Contract()` second arg is `sec_type` (str) but mypy sees `int` — `# type: ignore[arg-type]`
 - Bar aggregation is tick-triggered: bar emitted when a tick arrives AFTER the time window
-- `test_stop_during_run` in `test_replay.py` is flaky (hangs) — excluded from full runs
+- `test_stop_during_run` in `test_replay.py` was flaky (hangs) — fixed by polling `_running` inside `_wait_for_next` sleep
 - `task_error_logger()` in `broker/__init__.py` must be used for background task `done_callback` — catches `CancelledError`, logs other exceptions
 - No async DB — persistence uses sync SQLAlchemy sessions
 

@@ -1,6 +1,6 @@
 # Implementation Status
 
-All 10 phases complete. 436 tests (excl. 1 pre-existing flaky test `test_stop_during_run`).
+All 10 phases complete. 446 tests (0 excluded). `test_stop_during_run` flakiness fixed.
 
 ---
 
@@ -149,7 +149,7 @@ All 10 phases complete. 436 tests (excl. 1 pre-existing flaky test `test_stop_du
 | test_metrics.py | 29 | Backtest metrics |
 | test_monitoring.py | 22 | Monitoring / alerts |
 | test_integration.py | 9 | E2E integration |
-| **Total** | **436** | **All passing (excl. 1 flaky)** |
+| **Total** | **446** | **All passing** |
 
 ## Code Quality
 

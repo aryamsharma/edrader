@@ -2,7 +2,7 @@
 
 ## Consistency Check
 - **Event type count:** 27 concrete event types. Consistent across all docs.
-- **Test count:** 443 tests across 22 files (1 flaky excluded: `test_stop_during_run`). Consistent with actual results.
+- **Test count:** 446 tests across 22 files (0 excluded). `test_stop_during_run` flakiness fixed — `_wait_for_next` now polls `_running` in 0.1s chunks.
 - **Module count:** 11 module directories under `src/edrader/`. Consistent.
 - **File references:** All component locations verified against actual file paths. Package name fixed from `src/trading_platform/` → `src/edrader/`.
 - **Test file count:** 22 test files + `conftest.py` + `__init__.py`.

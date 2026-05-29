@@ -9,7 +9,7 @@
 
 ## Statistics
 - **Source files:** 37 Python files in `src/edrader/` (11 module dirs, 17 modules + 12 `__init__.py` + 8 non-init source files)
-- **Test files:** 22 Python files in `tests/` (443 tests, 1 flaky excluded)
+- **Test files:** 22 Python files in `tests/` (446 tests, 0 excluded)
 - **Config:** YAML-based (pydantic), defaults in `pyproject.toml`
 - **Event types:** 27 concrete event types inheriting `BaseEvent`
 
@@ -77,5 +77,5 @@ tests/
 poetry run ruff check .          # Lint (0 errors)
 poetry run ruff format .         # Format (line-length 100, double quotes)
 poetry run mypy src/             # Typecheck (strict)
-poetry run pytest -k "not test_stop_during_run"  # 443 tests pass
+poetry run pytest  # 446 tests pass
 ```

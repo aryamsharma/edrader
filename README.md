@@ -79,8 +79,8 @@ poetry run python -m edrader.app.main
 ### Tests
 
 ```sh
-# Run all tests (excludes 1 known flaky)
-poetry run pytest -k "not test_stop_during_run"
+# Run all tests
+poetry run pytest
 
 # Run a specific test file
 poetry run pytest tests/test_event_bus.py -v
