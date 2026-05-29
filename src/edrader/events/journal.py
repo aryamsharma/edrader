@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
@@ -35,8 +36,9 @@ class EventJournal:
         Base.metadata.create_all(self._engine)
         self._sequence = 0
         self._initialized = False
+        self._lock = asyncio.Lock()
 
-    def _ensure_sequence(self) -> None:
+    def _ensure_sequence_sync(self) -> None:
         if self._initialized:
             return
         with Session(self._engine) as session:
@@ -45,55 +47,70 @@ class EventJournal:
                 self._sequence = last.sequence  # type: ignore[assignment]
         self._initialized = True
 
-    def append(self, event: BaseEvent) -> int:
-        self._ensure_sequence()
-        self._sequence += 1
-        payload = json.dumps(event.to_dict(), default=str)
-        record = EventRecord(
-            sequence=self._sequence,
-            event_type=type(event).__name__,
-            event_id=event.event_id,
-            timestamp=event.timestamp,
-            payload=payload,
-        )
-        with Session(self._engine) as session:
-            session.add(record)
-            session.commit()
+    async def _ensure_sequence(self) -> None:
+        await asyncio.to_thread(self._ensure_sequence_sync)
+
+    async def append(self, event: BaseEvent) -> int:
+        async with self._lock:
+            await self._ensure_sequence()
+            self._sequence += 1
+            payload = json.dumps(event.to_dict(), default=str)
+            record = EventRecord(
+                sequence=self._sequence,
+                event_type=type(event).__name__,
+                event_id=event.event_id,
+                timestamp=event.timestamp,
+                payload=payload,
+            )
+
+            def _do_append() -> None:
+                with Session(self._engine) as session:
+                    session.add(record)
+                    session.commit()
+
+            await asyncio.to_thread(_do_append)
         return self._sequence
 
-    def replay(
+    async def replay(
         self,
         event_types: list[type[BaseEvent]] | None = None,
         since_sequence: int = 0,
         limit: int | None = None,
     ) -> list[BaseEvent]:
-        self._ensure_sequence()
+        await self._ensure_sequence()
         type_names: list[str] | None = [t.__name__ for t in event_types] if event_types else None
 
-        with Session(self._engine) as session:
-            query = session.query(EventRecord).filter(EventRecord.sequence > since_sequence)
-            if type_names:
-                query = query.filter(EventRecord.event_type.in_(type_names))
-            query = query.order_by(EventRecord.sequence.asc())
-            if limit is not None:
-                query = query.limit(limit)
-            records = query.all()
+        def _do_query() -> list[BaseEvent]:
+            with Session(self._engine) as session:
+                query = session.query(EventRecord).filter(EventRecord.sequence > since_sequence)
+                if type_names:
+                    query = query.filter(EventRecord.event_type.in_(type_names))
+                query = query.order_by(EventRecord.sequence.asc())
+                if limit is not None:
+                    query = query.limit(limit)
+                records = query.all()
 
-        events: list[BaseEvent] = []
-        for record in records:
-            payload = json.loads(record.payload)  # type: ignore[arg-type]
-            event = BaseEvent.from_dict(payload)
-            events.append(event)
-        return events
+            events: list[BaseEvent] = []
+            for record in records:
+                payload = json.loads(record.payload)  # type: ignore[arg-type]
+                event = BaseEvent.from_dict(payload)
+                events.append(event)
+            return events
 
-    def count(self) -> int:
-        self._ensure_sequence()
-        with Session(self._engine) as session:
-            return session.query(EventRecord).count()
+        return await asyncio.to_thread(_do_query)
+
+    async def count(self) -> int:
+        await self._ensure_sequence()
+
+        def _do_count() -> int:
+            with Session(self._engine) as session:
+                return session.query(EventRecord).count()
+
+        return await asyncio.to_thread(_do_count)
 
     @property
-    def last_sequence(self) -> int:
-        self._ensure_sequence()
+    async def last_sequence(self) -> int:
+        await self._ensure_sequence()
         return self._sequence
 
     def close(self) -> None:

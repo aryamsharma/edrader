@@ -6,6 +6,8 @@ from edrader.events.bus import EventBus
 from edrader.events.event_types import (
     ExposureUpdatedEvent,
     MarketTickEvent,
+    OrderCancelledEvent,
+    OrderFilledEvent,
     OrderRequestedEvent,
     OrderSubmittedEvent,
     SignalApprovedEvent,
@@ -179,6 +181,55 @@ class TestExecutionEngineSignalProcessing:
         await event_bus.publish(ExposureUpdatedEvent(equity=50_000.0, source="test"))
         await event_bus.drain()
         assert engine._equity == 50_000.0
+
+    async def test_filled_event_removes_active_order(
+        self, engine: ExecutionEngine, event_bus: EventBus
+    ) -> None:
+        await event_bus.publish(
+            OrderSubmittedEvent(
+                order_id="ORD-001",
+                symbol="AAPL",
+                side="BUY",
+                quantity=100,
+                order_type="MKT",
+                source="test",
+            )
+        )
+        await event_bus.drain()
+        assert engine.active_order_count == 1
+
+        await event_bus.publish(
+            OrderFilledEvent(
+                order_id="ORD-001",
+                symbol="AAPL",
+                side="BUY",
+                fill_price=150.0,
+                fill_quantity=100,
+                source="test",
+            )
+        )
+        await event_bus.drain()
+        assert engine.active_order_count == 0
+
+    async def test_cancelled_event_removes_active_order(
+        self, engine: ExecutionEngine, event_bus: EventBus
+    ) -> None:
+        await event_bus.publish(
+            OrderSubmittedEvent(
+                order_id="ORD-002",
+                symbol="MSFT",
+                side="SELL",
+                quantity=50,
+                order_type="LMT",
+                source="test",
+            )
+        )
+        await event_bus.drain()
+        assert engine.active_order_count == 1
+
+        await event_bus.publish(OrderCancelledEvent(order_id="ORD-002"))
+        await event_bus.drain()
+        assert engine.active_order_count == 0
 
 
 class TestExecutionEngineThrottle:

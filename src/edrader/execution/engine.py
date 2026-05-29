@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -37,6 +38,8 @@ class ExecutionEngine:
         self._running = False
         self._last_order_time: dict[str, float] = {}
         self._active_orders: dict[str, dict[str, Any]] = {}
+        self._pending_retries: dict[str, int] = {}
+        self._retry_tasks: set[asyncio.Task[None]] = set()
         self._prices: dict[str, float] = {}
         self._equity: float = 100_000.0
         self._approved_unsub: Any = None
@@ -90,8 +93,14 @@ class ExecutionEngine:
         self._filled_unsub = None
         self._cancelled_unsub = None
         self._exposure_unsub = None
+        if self._retry_tasks:
+            for task in self._retry_tasks:
+                task.cancel()
+            await asyncio.gather(*self._retry_tasks, return_exceptions=True)
+            self._retry_tasks.clear()
         self._last_order_time.clear()
         self._active_orders.clear()
+        self._pending_retries.clear()
         self._prices.clear()
         logger.info("execution_engine_stopped")
 
@@ -145,6 +154,17 @@ class ExecutionEngine:
 
         self._last_order_time[event.symbol] = time.monotonic()
 
+        if self._max_retries > 0 and final_size > 0:
+            key = f"{event.symbol}:{event.side}"
+            self._pending_retries[key] = self._max_retries
+            task = asyncio.create_task(
+                self._retry_pending_order(
+                    event.symbol, event.side, final_size, self._default_order_type
+                )
+            )
+            self._retry_tasks.add(task)
+            task.add_done_callback(self._retry_tasks.discard)
+
         logger.info(
             "order_requested",
             symbol=event.symbol,
@@ -152,6 +172,36 @@ class ExecutionEngine:
             quantity=final_size,
             order_type=self._default_order_type,
         )
+
+    async def _retry_pending_order(
+        self, symbol: str, side: str, size: int, order_type: str
+    ) -> None:
+        try:
+            await asyncio.sleep(2.0)
+            if not self._running:
+                return
+            key = f"{symbol}:{side}"
+            remaining = self._pending_retries.get(key, 0)
+            if remaining <= 0:
+                return
+            self._pending_retries[key] = remaining - 1
+            logger.info(
+                "order_retry",
+                symbol=symbol,
+                side=side,
+                remaining=remaining - 1,
+            )
+            await self._event_bus.publish(
+                OrderRequestedEvent(
+                    symbol=symbol,
+                    side=side,
+                    quantity=size,
+                    order_type=order_type,
+                    source="execution_engine",
+                )
+            )
+        except Exception:
+            logger.exception("order_retry_failed")
 
     async def _on_tick(self, event: BaseEvent) -> None:
         assert isinstance(event, MarketTickEvent)
@@ -171,6 +221,8 @@ class ExecutionEngine:
             "quantity": event.quantity,
             "order_type": event.order_type,
         }
+        key = f"{event.symbol}:{event.side}"
+        self._pending_retries.pop(key, None)
 
     async def _on_exposure_update(self, event: BaseEvent) -> None:
         assert isinstance(event, ExposureUpdatedEvent)

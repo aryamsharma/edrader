@@ -107,7 +107,7 @@ class Application:
 
         async def journal_handler(event: BaseEvent) -> None:
             if self._journal is not None:
-                self._journal.append(event)
+                await self._journal.append(event)
 
         self.event_bus.subscribe_all(journal_handler, name="journal")
 

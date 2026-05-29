@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
 from edrader.events.bus import EventBus
+from edrader.events.event_types import BaseEvent
 from edrader.monitoring.logging import get_logger
 
 logger = get_logger(__name__)
@@ -33,9 +36,11 @@ class MetricsCollector:
         self._sample_interval = sample_interval
         self._running = False
         self._task: asyncio.Task[None] | None = None
+        self._active = False
+        self._event_count: int = 0
+        self._events_by_type: dict[str, int] = defaultdict(int)
+        self._errors_by_type: dict[str, int] = defaultdict(int)
         self._samples: list[dict[str, Any]] = []
-        self._last_published: int = 0
-        self._last_sample_time: float = 0.0
 
     @property
     def is_running(self) -> bool:
@@ -45,6 +50,15 @@ class MetricsCollector:
         if self._running:
             return
         self._running = True
+        self._active = True
+
+        async def handler(event: BaseEvent) -> None:
+            if not self._active:
+                return
+            self._event_count += 1
+            self._events_by_type[type(event).__name__] += 1
+
+        self._event_bus.subscribe_all(handler, name="metrics_collector")
         self._task = asyncio.create_task(self._sample_loop())
         logger.info("metrics_collector_started")
 
@@ -52,9 +66,10 @@ class MetricsCollector:
         if not self._running:
             return
         self._running = False
+        self._active = False
         if self._task is not None:
             self._task.cancel()
-            with __import__("contextlib").suppress(asyncio.CancelledError):
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
         self._task = None
         logger.info("metrics_collector_stopped")
@@ -64,18 +79,14 @@ class MetricsCollector:
 
         throughput = self._compute_throughput()
 
-        top_events = sorted(
-            bus_metrics["events_by_type"].items(), key=lambda x: x[1], reverse=True
-        )[:5]
-        top_errors = sorted(
-            bus_metrics["errors_by_type"].items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        top_events = sorted(self._events_by_type.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_errors = sorted(self._errors_by_type.items(), key=lambda x: x[1], reverse=True)[:5]
 
         return RuntimeSnapshot(
             queue_depth=self._event_bus.queue_size,
             subscriber_count=self._event_bus.subscriber_count,
             throughput_1m=throughput,
-            total_published=bus_metrics["total_published"],
+            total_published=self._event_count,
             total_dispatched=bus_metrics["total_dispatched"],
             total_errors=bus_metrics["total_errors"],
             top_event_types=top_events,
@@ -105,12 +116,9 @@ class MetricsCollector:
 
     async def _sample_loop(self) -> None:
         while self._running:
-            bus_metrics = self._event_bus.metrics.snapshot()
             sample = {
                 "time": time.monotonic(),
-                "total_published": bus_metrics["total_published"],
-                "total_dispatched": bus_metrics["total_dispatched"],
-                "total_errors": bus_metrics["total_errors"],
+                "total_published": self._event_count,
             }
             self._samples.append(sample)
 

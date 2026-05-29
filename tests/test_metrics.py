@@ -77,21 +77,21 @@ class TestMetricsEngineLifecycle:
 
     async def test_subscribes_to_exposure_updates(
         self,
-        engine: MetricsEngine,
+        engine: MetricsEngine,  # noqa: ARG002
         event_bus: EventBus,  # noqa: ARG002
     ) -> None:
         assert event_bus.subscriber_count_for(ExposureUpdatedEvent) >= 1
 
     async def test_subscribes_to_fills(
         self,
-        engine: MetricsEngine,
+        engine: MetricsEngine,  # noqa: ARG002
         event_bus: EventBus,  # noqa: ARG002
     ) -> None:
         assert event_bus.subscriber_count_for(OrderFilledEvent) >= 1
 
     async def test_subscribes_to_position_closes(
         self,
-        engine: MetricsEngine,
+        engine: MetricsEngine,  # noqa: ARG002
         event_bus: EventBus,  # noqa: ARG002
     ) -> None:
         assert event_bus.subscriber_count_for(PositionClosedEvent) >= 1

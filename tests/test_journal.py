@@ -23,16 +23,16 @@ def journal(tmp_path: Path) -> EventJournal:
 @pytest.mark.asyncio
 async def test_append_event(journal: EventJournal) -> None:
     event = MarketTickEvent(symbol="AAPL", price=150.0)
-    seq = journal.append(event)
+    seq = await journal.append(event)
     assert seq == 1
-    assert journal.count() == 1
+    assert await journal.count() == 1
 
 
 @pytest.mark.asyncio
 async def test_append_multiple_events(journal: EventJournal) -> None:
-    journal.append(HeartbeatEvent())
-    journal.append(MarketTickEvent(symbol="AAPL", price=150.0))
-    journal.append(
+    await journal.append(HeartbeatEvent())
+    await journal.append(MarketTickEvent(symbol="AAPL", price=150.0))
+    await journal.append(
         SignalGeneratedEvent(
             strategy_id="test",
             symbol="AAPL",
@@ -41,18 +41,18 @@ async def test_append_multiple_events(journal: EventJournal) -> None:
             suggested_size=100,
         )
     )
-    assert journal.count() == 3
-    assert journal.last_sequence == 3
+    assert await journal.count() == 3
+    assert await journal.last_sequence == 3
 
 
 @pytest.mark.asyncio
 async def test_replay_all(journal: EventJournal) -> None:
     e1 = HeartbeatEvent()
     e2 = MarketTickEvent(symbol="AAPL", price=150.0)
-    journal.append(e1)
-    journal.append(e2)
+    await journal.append(e1)
+    await journal.append(e2)
 
-    events = journal.replay()
+    events = await journal.replay()
     assert len(events) == 2
     assert events[0].event_id == e1.event_id
     assert events[1].event_id == e2.event_id
@@ -60,24 +60,24 @@ async def test_replay_all(journal: EventJournal) -> None:
 
 @pytest.mark.asyncio
 async def test_replay_with_type_filter(journal: EventJournal) -> None:
-    journal.append(HeartbeatEvent())
-    journal.append(MarketTickEvent(symbol="AAPL", price=150.0))
-    journal.append(HeartbeatEvent())
+    await journal.append(HeartbeatEvent())
+    await journal.append(MarketTickEvent(symbol="AAPL", price=150.0))
+    await journal.append(HeartbeatEvent())
 
-    events = journal.replay(event_types=[HeartbeatEvent])
+    events = await journal.replay(event_types=[HeartbeatEvent])
     assert len(events) == 2
     assert all(isinstance(e, HeartbeatEvent) for e in events)
 
 
 @pytest.mark.asyncio
 async def test_replay_since_sequence(journal: EventJournal) -> None:
-    journal.append(HeartbeatEvent())
+    await journal.append(HeartbeatEvent())
     e2 = MarketTickEvent(symbol="AAPL", price=150.0)
-    journal.append(e2)
+    await journal.append(e2)
     e3 = HeartbeatEvent()
-    journal.append(e3)
+    await journal.append(e3)
 
-    events = journal.replay(since_sequence=1)
+    events = await journal.replay(since_sequence=1)
     assert len(events) == 2
     assert events[0].event_id == e2.event_id
     assert events[1].event_id == e3.event_id
@@ -85,11 +85,11 @@ async def test_replay_since_sequence(journal: EventJournal) -> None:
 
 @pytest.mark.asyncio
 async def test_replay_with_limit(journal: EventJournal) -> None:
-    journal.append(HeartbeatEvent())
-    journal.append(MarketTickEvent(symbol="AAPL", price=150.0))
-    journal.append(HeartbeatEvent())
+    await journal.append(HeartbeatEvent())
+    await journal.append(MarketTickEvent(symbol="AAPL", price=150.0))
+    await journal.append(HeartbeatEvent())
 
-    events = journal.replay(limit=2)
+    events = await journal.replay(limit=2)
     assert len(events) == 2
 
 
@@ -103,9 +103,9 @@ async def test_roundtrip_fidelity(journal: EventJournal) -> None:
         fill_quantity=100,
         source="test_module",
     )
-    journal.append(original)
+    await journal.append(original)
 
-    events = journal.replay()
+    events = await journal.replay()
     restored = events[0]
     assert isinstance(restored, OrderFilledEvent)
     assert restored.order_id == "ORD-001"
@@ -117,32 +117,32 @@ async def test_roundtrip_fidelity(journal: EventJournal) -> None:
 
 @pytest.mark.asyncio
 async def test_empty_journal(journal: EventJournal) -> None:
-    assert journal.count() == 0
-    events = journal.replay()
+    assert await journal.count() == 0
+    events = await journal.replay()
     assert len(events) == 0
 
 
 @pytest.mark.asyncio
 async def test_sequence_monotonic(journal: EventJournal) -> None:
-    seq1 = journal.append(HeartbeatEvent())
-    seq2 = journal.append(HeartbeatEvent())
-    seq3 = journal.append(HeartbeatEvent())
+    seq1 = await journal.append(HeartbeatEvent())
+    seq2 = await journal.append(HeartbeatEvent())
+    seq3 = await journal.append(HeartbeatEvent())
     assert seq1 < seq2 < seq3
 
 
 @pytest.mark.asyncio
 async def test_journal_reuses_connection(journal: EventJournal) -> None:
-    journal.append(HeartbeatEvent())
-    journal.append(HeartbeatEvent())
-    assert journal.count() == 2
+    await journal.append(HeartbeatEvent())
+    await journal.append(HeartbeatEvent())
+    assert await journal.count() == 2
 
-    events = journal.replay()
+    events = await journal.replay()
     assert len(events) == 2
 
 
 @pytest.mark.asyncio
 async def test_close(journal: EventJournal) -> None:
-    journal.append(HeartbeatEvent())
+    await journal.append(HeartbeatEvent())
     journal.close()
 
 
@@ -167,9 +167,9 @@ async def test_multiple_event_types_roundtrip(journal: EventJournal) -> None:
         ),
     ]
     for e in events:
-        journal.append(e)
+        await journal.append(e)
 
-    replayed = journal.replay()
+    replayed = await journal.replay()
     assert len(replayed) == 4
     for original, restored in zip(events, replayed, strict=True):
         assert type(restored) is type(original)
