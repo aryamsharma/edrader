@@ -43,7 +43,11 @@ async def run_backtest(
         import tempfile
 
         journal_db = tempfile.mktemp(suffix=".db")
-        journal = EventJournal(database_url=f"sqlite:///{journal_db}")
+        journal = EventJournal(
+            database_url=f"sqlite:///{journal_db}",
+            batch_size=0,
+            fast_mode=True,
+        )
 
         async def journal_handler(event: BaseEvent) -> None:
             await journal.append(event)
@@ -122,6 +126,7 @@ async def run_backtest(
     await bus.stop()
 
     if journal:
+        await journal.flush()
         count = await journal.count()
         journal.close()
         print(f"Journal records written: {count}")

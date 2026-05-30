@@ -4,7 +4,8 @@ import asyncio
 import json
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine
+from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from edrader.events.event_types import BaseEvent
@@ -31,12 +32,24 @@ class EventRecord(Base):
 
 
 class EventJournal:
-    def __init__(self, database_url: str) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        batch_size: int = 1,
+        fast_mode: bool = False,
+    ) -> None:
         self._engine = create_engine(database_url, echo=False)
+        if fast_mode:
+            with self._engine.connect() as conn:
+                conn.exec_driver_sql("PRAGMA synchronous = OFF")
+                conn.exec_driver_sql("PRAGMA journal_mode = MEMORY")
+                conn.exec_driver_sql("PRAGMA cache_size = -64000")
         Base.metadata.create_all(self._engine)
         self._sequence = 0
         self._initialized = False
         self._lock = asyncio.Lock()
+        self._batch_size = batch_size
+        self._buffer: list[EventRecord] = []
 
     def _ensure_sequence_sync(self) -> None:
         if self._initialized:
@@ -51,25 +64,45 @@ class EventJournal:
         await asyncio.to_thread(self._ensure_sequence_sync)
 
     async def append(self, event: BaseEvent) -> int:
-        async with self._lock:
-            await self._ensure_sequence()
-            self._sequence += 1
-            payload = json.dumps(event.to_dict(), default=str)
-            record = EventRecord(
-                sequence=self._sequence,
-                event_type=type(event).__name__,
-                event_id=event.event_id,
-                timestamp=event.timestamp,
-                payload=payload,
-            )
-
-            def _do_append() -> None:
-                with Session(self._engine) as session:
-                    session.add(record)
-                    session.commit()
-
-            await asyncio.to_thread(_do_append)
+        self._sequence += 1
+        payload = json.dumps(event.to_dict(), default=str)
+        record = EventRecord(
+            sequence=self._sequence,
+            event_type=type(event).__name__,
+            event_id=event.event_id,
+            timestamp=event.timestamp,
+            payload=payload,
+        )
+        self._buffer.append(record)
+        if self._batch_size > 0 and len(self._buffer) >= self._batch_size:
+            batch = self._buffer
+            self._buffer = []
+            await asyncio.to_thread(self._flush_batch, self._engine, batch)
         return self._sequence
+
+    @staticmethod
+    def _flush_batch(engine: Engine, records: list[EventRecord]) -> None:
+        now = datetime.now(UTC)
+        rows = [
+            {
+                "sequence": r.sequence,
+                "event_type": r.event_type,
+                "event_id": r.event_id,
+                "timestamp": r.timestamp,
+                "payload": r.payload,
+                "recorded_at": now,
+            }
+            for r in records
+        ]
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO event_journal "
+                    "(sequence, event_type, event_id, timestamp, payload, recorded_at) "
+                    "VALUES (:sequence, :event_type, :event_id, :timestamp, :payload, :recorded_at)"
+                ),
+                rows,
+            )
 
     async def replay(
         self,
@@ -113,5 +146,15 @@ class EventJournal:
         await self._ensure_sequence()
         return self._sequence
 
+    async def flush(self) -> None:
+        if not self._buffer:
+            return
+        batch = self._buffer
+        self._buffer = []
+        await asyncio.to_thread(self._flush_batch, self._engine, batch)
+
     def close(self) -> None:
+        if self._buffer:
+            self._flush_batch(self._engine, self._buffer)
+            self._buffer = []
         self._engine.dispose()
