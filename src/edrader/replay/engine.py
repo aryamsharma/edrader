@@ -106,6 +106,8 @@ class ReplayEngine:
         if delta <= 0:
             return
         adjusted = delta / max(self._clock.speed, 0.001)
+        if adjusted < 0.001:
+            return
         while adjusted > 0 and self._running:
             chunk = min(adjusted, 0.1)
             await asyncio.sleep(chunk)

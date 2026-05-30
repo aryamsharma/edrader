@@ -109,7 +109,21 @@ class EventBus:
         self._error_handler = error_handler
         self._subscriber_timeout = subscriber_timeout
         self._sync_mode = False
+        self._handler_cache: dict[type[BaseEvent], list[SubscriberEntry]] = {}
         self.metrics = DispatchMetrics()
+
+    def _invalidate_cache(self) -> None:
+        self._handler_cache.clear()
+
+    def _handlers_for(self, event_type: type[BaseEvent]) -> list[SubscriberEntry]:
+        cached = self._handler_cache.get(event_type)
+        if cached is not None:
+            return cached
+        handlers: list[SubscriberEntry] = []
+        handlers.extend(self._subscribers.get(event_type, []))
+        handlers.extend(self._wildcard_subscribers)
+        self._handler_cache[event_type] = handlers
+        return handlers
 
     def subscribe(
         self,
@@ -120,6 +134,7 @@ class EventBus:
     ) -> None:
         entry = SubscriberEntry(handler, event_filter, name)
         self._subscribers[event_type].append(entry)
+        self._invalidate_cache()
 
     def subscribe_all(
         self,
@@ -129,6 +144,7 @@ class EventBus:
     ) -> None:
         entry = SubscriberEntry(handler, event_filter, name)
         self._wildcard_subscribers.append(entry)
+        self._invalidate_cache()
 
     def unsubscribe(self, event_type: type[BaseEvent], handler: AsyncHandler) -> None:
         self._subscribers[event_type] = [
@@ -136,6 +152,7 @@ class EventBus:
         ]
         if not self._subscribers[event_type]:
             del self._subscribers[event_type]
+        self._invalidate_cache()
 
     @property
     def sync_mode(self) -> bool:
@@ -155,10 +172,7 @@ class EventBus:
             await self._queue.put(event)
 
     async def _dispatch(self, event: BaseEvent) -> None:
-        handlers: list[SubscriberEntry] = []
-
-        handlers.extend(self._subscribers.get(type(event), []))
-        handlers.extend(self._wildcard_subscribers)
+        handlers = self._handlers_for(type(event))
 
         if not handlers:
             return
