@@ -58,6 +58,7 @@ class ReplayEngine:
             return
         self._running = True
         self._paused = False
+        self._event_bus.sync_mode = True
         try:
             while self._index < len(self._events) and self._running:
                 if self._paused:
@@ -70,6 +71,7 @@ class ReplayEngine:
                     await self._wait_for_next(event, self._events[self._index])
             logger.info("replay_completed", events_played=self._index)
         finally:
+            self._event_bus.sync_mode = False
             self._running = False
 
     async def step(self) -> bool:

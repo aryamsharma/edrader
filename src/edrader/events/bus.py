@@ -49,12 +49,18 @@ class PriorityQueue:
     async def get(self) -> BaseEvent:
         for q in (self._high, self._normal):
             try:
-                event = await asyncio.wait_for(q.get(), timeout=0.01)
+                event = q.get_nowait()
                 self._last_source = q
                 return event
-            except TimeoutError:
+            except asyncio.QueueEmpty:
                 continue
-        raise TimeoutError("no events available")
+        try:
+            event = await asyncio.wait_for(self._high.get(), timeout=0.001)
+            self._last_source = self._high
+            return event
+        except TimeoutError:
+            self._last_source = self._normal
+            return await self._normal.get()
 
     def task_done(self) -> None:
         if self._last_source is not None:
@@ -102,6 +108,7 @@ class EventBus:
         self._task: asyncio.Task[None] | None = None
         self._error_handler = error_handler
         self._subscriber_timeout = subscriber_timeout
+        self._sync_mode = False
         self.metrics = DispatchMetrics()
 
     def subscribe(
@@ -130,11 +137,22 @@ class EventBus:
         if not self._subscribers[event_type]:
             del self._subscribers[event_type]
 
+    @property
+    def sync_mode(self) -> bool:
+        return self._sync_mode
+
+    @sync_mode.setter
+    def sync_mode(self, value: bool) -> None:
+        self._sync_mode = value
+
     async def publish(self, event: BaseEvent) -> None:
         self.metrics.total_published += 1
         type_name = type(event).__name__
         self.metrics.events_by_type[type_name] += 1
-        await self._queue.put(event)
+        if self._sync_mode:
+            await self._dispatch(event)
+        else:
+            await self._queue.put(event)
 
     async def _dispatch(self, event: BaseEvent) -> None:
         handlers: list[SubscriberEntry] = []
