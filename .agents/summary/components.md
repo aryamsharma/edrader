@@ -1,196 +1,225 @@
 # Components
 
-## 1. Event System (`events/`)
+## EventBus (`src/edrader/events/bus.py`)
 
-### EventBus (`events/bus.py`)
-- **File:** `src/edrader/events/bus.py`
-- **Purpose:** Central async pub/sub with typed subscriptions and priority queues
-- **Subscribes to:** Nothing (publishes via `publish()`)
-- **Publishes:** Nothing directly (other components publish through it)
-- **Key features:** Dual priority queues, typed subscriptions, wildcard subscribe_all, predicate filters, error handlers, metrics tracking, `drain()` for test synchronization, `subscriber_timeout` (default 5s) preventing hung handlers
-- **Lifecycle:** `start()`, `stop()`, idempotent
+Central message broker. All inter-component communication flows through the EventBus as typed domain events.
 
-### Event Types (`events/event_types.py`)
-- **File:** `src/edrader/events/event_types.py`
-- **Purpose:** 27 frozen dataclass event types inheriting `BaseEvent`
-- **Serialization:** `to_dict()` / `from_dict()` with ISO timestamps and enum name serialization
+- **PriorityQueue**: dual `asyncio.Queue` (high/critical vs normal/low priority)
+  - `get()`: `get_nowait()` on high then normal; `wait_for(high.get(), 0.001)`; finally blocking `normal.get()`
+  - `task_done()` delegates to `_last_source` queue
+  - `qsize()`, `high_size`, `normal_size`, `join()`
+- **Subscription model**: `subscribe(event_type, handler, event_filter, name)` returns unsubscribe callable; `subscribe_all(handler, event_filter, name)` for wildcard
+- **Handler cache**: `_handler_cache` dict keyed by event type, rebuilt on subscribe/unsubscribe via `_invalidate_cache()`
+- **Dispatch**: `publish(event)` is async; in `sync_mode` calls `_dispatch()` directly, otherwise enqueues to PriorityQueue
+- **Dispatch processing**: `_dispatch()` iterates handlers with `asyncio.wait_for(timeout=subscriber_timeout)` catching TimeoutError and Exception
+- **Sync mode**: `EventBus.sync_mode` property (get/set); when True, `publish()` dispatches subscribers synchronously within the call; used by ReplayEngine during `run()`
+- **Metrics**: `DispatchMetrics` tracks `total_published`, `total_dispatched`, `total_errors`, `events_by_type`, `errors_by_type`
+- **Lifecycle**: `start()` creates `_processing_task`; `stop()` cancels task; `drain()` awaits `_queue.join()`
 
-### EventJournal (`events/journal.py`)
-- **File:** `src/edrader/events/journal.py`
-- **Purpose:** SQLite append-only event store for replay and audit
-- **Methods:** `append()`, `replay()` (with type/since/limit filters), `count()`, `close()`
+## EventJournal (`src/edrader/events/journal.py`)
 
-## 2. Broker Integration (`broker/`)
+Append-only SQLite event store for replay and audit.
 
-### IBKRClient (`broker/ibkr_client.py`)
-- **File:** `src/edrader/broker/ibkr_client.py`
-- **Purpose:** Connection lifecycle to IB Gateway/TWS with auto-reconnect
-- **Subscribes to:** Nothing
-- **Publishes:** `BrokerReconnectedEvent`, `BrokerDisconnectedEvent`, `HeartbeatEvent`
-- **Key features:** Reconnect loop with max attempt limit, heartbeat monitoring, disconnect handler, `task_error_logger` for background task safety
+- **Constructor**: `EventJournal(database_url, batch_size=1, fast_mode=False)`
+  - `fast_mode=True` sets `PRAGMA synchronous=OFF, journal_mode=MEMORY, cache_size=-64000`
+  - Creates `event_journal` table via ORM metadata
+- **Writing**: `append(event)` serializes via `event.to_dict()` + `json.dumps()`, buffers in `_buffer` list; auto-flushes when `len(buffer) >= batch_size`
+  - Async via `asyncio.to_thread()` for SQLite writes
+- **Flushing**: `flush()` writes buffered events via raw SQL `executemany`; `close()` does final flush + `engine.dispose()`
+- **Reading**: `replay(event_types, since_sequence, limit)` queries with optional type filter (by class name) and sequence offset
+- **Sequence tracking**: `_sequence` counter incremented per append; resumed from DB max on first call to `_ensure_sequence()`
+- **Schema**: `event_journal(id PK, sequence INT, event_type STR, event_id STR, timestamp DT, payload TEXT, recorded_at DT)`
+- **Concurrency**: `asyncio.Lock` protects `_buffer` access
 
-### MarketDataFeed (`broker/market_data.py`)
-- **File:** `src/edrader/broker/market_data.py`
-- **Purpose:** Manages IBKR tick subscriptions, aggregates bars from ticks
-- **Subscribes to:** `BrokerReconnectedEvent` (auto re-subscribe on reconnect)
-- **Publishes:** `MarketTickEvent`, `BarCloseEvent`
-- **Key features:** Per-symbol BarAggregator, tick→bar conversion, auto re-subscribe on reconnect, `task_error_logger` for background task safety
+## RiskEngine (`src/edrader/risk/engine.py`)
 
-### BrokerAdapter (`broker/order_management.py`)
-- **File:** `src/edrader/broker/order_management.py`
-- **Purpose:** Places/cancels orders via IBKR, tracks order status and fills
-- **Subscribes to:** `OrderRequestedEvent`
-- **Publishes:** `OrderSubmittedEvent`, `OrderFilledEvent`, `OrderStatusChangedEvent`, `OrderCancelledEvent`
+Validates signals before execution. 6 configurable checks plus kill switch.
 
-## 3. Portfolio (`portfolio/`)
+- **Constructor params**: `max_position_size` (100), `max_daily_loss` (1000.0), `max_leverage` (2.0), `max_symbol_exposure` (50000.0), `max_concurrent_positions` (10), `stale_market_seconds` (300.0)
+- **Checks** (all run per signal):
+  1. `max_position_size`: suggested_size > limit
+  2. `max_daily_loss`: abs(realized_pnl) >= limit (only for position-increasing signals)
+  3. `max_leverage`: gross_exposure / equity >= limit
+  4. `max_symbol_exposure`: currently returns None (not implemented)
+  5. `max_concurrent_positions`: non-zero positions >= limit (only for new symbols)
+  6. `stale_market`: seconds since last tick > limit
+- **Kill switch**: `activate_kill_switch()` / `deactivate_kill_switch()`; auto-activated on `BrokerDisconnectedEvent` + publishes `TradingHaltedEvent`
+- **State tracking**: positions (from fills), last tick time per symbol, exposure/equity (from ExposureUpdatedEvent), daily realized P&L
+- **Output**: publishes `SignalApprovedEvent` or `SignalRejectedEvent`; publishes `RiskViolationEvent` on each rejection
+- **Subscriptions**: SignalGeneratedEvent, OrderFilledEvent, MarketTickEvent, BrokerDisconnectedEvent, ExposureUpdatedEvent
 
-### PositionManager (`portfolio/position.py`)
-- **File:** `src/edrader/portfolio/position.py`
-- **Purpose:** Tracks positions with avg cost, realized/unrealized PnL, exposure, leverage
-- **Subscribes to:** `OrderFilledEvent`, `MarketTickEvent`
-- **Publishes:** `PositionOpenedEvent`, `PositionClosedEvent`, `PnLUpdatedEvent`, `PositionUpdate`, `ExposureUpdatedEvent`, `ExposureLimitEvent`
-- **Key features:** Multi-symbol support, short/long handling, tick-based mark-to-market, exposure snapshots, optional DB persistence, consolidated `_compute_unrealized_pnl()` (single-pass total + per-symbol)
+## ExecutionEngine (`src/edrader/execution/engine.py`)
 
-## 4. Risk (`risk/`)
+Converts approved signals into orders.
 
-### RiskEngine (`risk/engine.py`)
-- **File:** `src/edrader/risk/engine.py`
-- **Purpose:** Validates signals against configurable risk rules
-- **Subscribes to:** `SignalGeneratedEvent`, `OrderFilledEvent`, `MarketTickEvent`, `BrokerDisconnectedEvent`, `ExposureUpdatedEvent`
-- **Publishes:** `SignalApprovedEvent`, `SignalRejectedEvent`, `RiskViolationEvent`, `TradingHaltedEvent`
-- **Risk checks:**
-  1. Max position size (`max_position_size`)
-  2. Max daily loss (`max_daily_loss`, allows reducing positions)
-  3. Max leverage (`max_leverage`)
-  4. Max symbol exposure (`max_symbol_exposure`)
-  5. Max concurrent positions (`max_concurrent_positions`)
-  6. Stale market data (`stale_market_seconds`)
-- **Other features:** Kill switch (activated by disconnect), exposure auto-update via `ExposureUpdatedEvent`
+- **Constructor params**: `sizing_engine`, `default_order_type` ("MKT"), `max_retries` (3), `throttle_delay` (0.5)
+- **Flow**: receives `SignalApprovedEvent` → throttle check → `SizingEngine.compute_size()` → publish `OrderRequestedEvent`
+- **Throttle**: per-symbol cooldown via `time.monotonic()`; if throttled, publishes empty `OrderSubmittedEvent` as no-op
+- **Retry**: background task re-publishes `OrderRequestedEvent` after 2s if no `OrderSubmittedEvent` with order_id received; up to `max_retries` times
+- **Price tracking**: updates `_prices[symbol]` from `MarketTickEvent`
+- **Order tracking**: `_active_orders` dict keyed by order_id; removed on fill or cancel
+- **Equity tracking**: updated from `ExposureUpdatedEvent.equity`
+- **Subscriptions**: SignalApprovedEvent, MarketTickEvent, OrderSubmittedEvent, OrderFilledEvent, OrderCancelledEvent, ExposureUpdatedEvent
 
-## 5. Execution (`execution/`)
+## SizingEngine (`src/edrader/execution/sizing.py`)
 
-### ExecutionEngine (`execution/engine.py`)
-- **File:** `src/edrader/execution/engine.py`
-- **Purpose:** Converts approved signals to order requests with throttling and sizing
-- **Subscribes to:** `SignalApprovedEvent`, `MarketTickEvent`, `OrderSubmittedEvent`, `OrderFilledEvent`, `OrderCancelledEvent`, `ExposureUpdatedEvent`
-- **Publishes:** `OrderRequestedEvent`, `OrderSubmittedEvent` (throttle notification)
-- **Key features:** Per-symbol throttle, configurable sizing via `SizingEngine`, price caching from ticks, live equity tracking from `ExposureUpdatedEvent`, active order cleanup on fill/cancel
+Computes order quantities.
 
-### SizingEngine (`execution/sizing.py`)
-- **File:** `src/edrader/execution/sizing.py`
-- **Purpose:** Computes order size based on method (fixed, percent_equity, volatility)
-- **Methods:** `compute_size(suggested_size, method, price, equity, symbol)` — volatility method uses ATR cache
-- **Default method:** `"fixed"` (returns suggested_size as-is)
-- **Volatility sizing:** `risk_amount = equity * percent_equity_fraction / atr`; falls back to suggested_size without cached ATR
+- **Constructor**: `method` ("fixed"), `percent_equity_fraction` (0.02)
+- **Methods**: `compute_size(suggested_size, method, price, equity, symbol)` → int
+  - `"fixed"` (default): returns `suggested_size` as-is
+  - `"percent_equity"`: `int(equity * fraction / price)`
+  - `"volatility"`: uses ATR cache; `int(risk_amount / atr)` or `int(suggested_size / atr_pct)`
+- **ATR cache**: `update_atr(symbol, atr)` for volatility sizing
 
-## 6. Replay/Backtesting (`replay/`)
+## PositionManager (`src/edrader/portfolio/position.py`)
 
-### ReplayClock (`replay/clock.py`)
-- **File:** `src/edrader/replay/clock.py`
-- **Purpose:** Simulated clock that can be sped up, paused, and reset
-- **Key features:** Speed multiplier, pause/resume, time advancement
+Tracks positions, exposures, and P&L per instrument.
 
-### ReplayEngine (`replay/engine.py`)
-- **File:** `src/edrader/replay/engine.py`
-- **Purpose:** Publishes pre-loaded events in chronological order
-- **Key features:** `step()` (single event), `run()` (all events), pause/resume, sorted by timestamp
+- **Constructor**: `event_bus`, `db_manager` (optional), `initial_capital` (100_000.0), `max_symbol_exposure` (optional)
+- **Position tracking**: `_positions[symbol] = Position(quantity, avg_cost, realized_pnl)`
+- **Fill processing `process_fill()`**:
+  - Updates quantity/avg_cost with weighted average for same-direction fills
+  - Computes realized P&L for reducing/covering fills
+  - Publishes `PositionOpenedEvent` (new position), `PositionClosedEvent` (flat), `PnLUpdatedEvent`
+  - Persists via `_db_manager` if configured
+  - Publishes `ExposureUpdatedEvent` (gross/net exposure, leverage, long/short counts, equity)
+  - Publishes `ExposureLimitEvent` if `max_symbol_exposure` exceeded
+- **Tick processing**: updates `_market_prices` from `MarketTickEvent`; publishes `PnLUpdatedEvent`, `PositionUpdate`, and `ExposureUpdatedEvent` on price changes for active positions
+- **Properties**: `positions`, `total_realized_pnl`, `total_unrealized_pnl`, `total_pnl`, `equity`, `leverage`, `exposure()` → `ExposureSnapshot`
 
-### HistoricalFeed (`replay/historical_feed.py`)
-- **File:** `src/edrader/replay/historical_feed.py`
-- **Purpose:** Loads CSV data into `BarCloseEvent` lists
-- **Key features:** Column mapping, date filtering, malformed row skipping, custom date formats, file-open error handling with logging
+## MarketDataFeed (`src/edrader/broker/market_data.py`)
 
-### SimulatedBroker (`replay/simulated_broker.py`)
-- **File:** `src/edrader/replay/simulated_broker.py`
-- **Purpose:** Simulates order execution for backtesting
-- **Subscribes to:** `OrderRequestedEvent`, `BarCloseEvent`, `MarketTickEvent`
-- **Publishes:** `OrderSubmittedEvent`, `OrderFilledEvent`, `OrderStatusChangedEvent`
-- **Key features:** Market/limit order fills, slippage, commissions, deferred fills (price arrives after order), held market orders
+Live market data from IBKR.
 
-### MetricsEngine (`replay/metrics.py`)
-- **File:** `src/edrader/replay/metrics.py`
-- **Purpose:** Computes backtest performance metrics
-- **Subscribes to:** `ExposureUpdatedEvent`, `OrderFilledEvent`, `PositionClosedEvent`
-- **Publishes:** Nothing directly
-- **Key metrics:** Total/annualized return, Sharpe ratio, max drawdown, win rate, turnover, equity summary
+- Connects to IBKR via `ib_insync`; requests market data for configured contracts
+- Publishes `MarketTickEvent` (HIGH priority) and `BarCloseEvent`
+- Bar aggregation is tick-triggered: emitted when a tick arrives after the time window
 
-## 7. Monitoring (`monitoring/`)
+## BrokerAdapter (`src/edrader/broker/order_management.py`)
 
-### MetricsCollector (`monitoring/metrics.py`)
-- **File:** `src/edrader/monitoring/metrics.py`
-- **Purpose:** Samples EventBus dispatch metrics at configurable intervals
-- **Key features:** Throughput computation (events/sec over 60s window), `RuntimeSnapshot` dataclass with queue depth, subscriber count, top event types
+Live order execution via IBKR.
 
-### AlertManager (`monitoring/alerts.py`)
-- **File:** `src/edrader/monitoring/alerts.py`
-- **Purpose:** Monitors events and publishes `AlertEvent` with cooldown deduplication
-- **Subscribes to:** `BrokerDisconnectedEvent`, `BrokerReconnectedEvent`, `RiskViolationEvent`, `SignalRejectedEvent`, `TradingHaltedEvent`, `HeartbeatEvent`
-- **Publishes:** `AlertEvent`
-- **Key features:** Cooldown per alert_type, heartbeat health monitoring, severity levels
+- Subscribes to `OrderRequestedEvent`; places orders via `ib_insync`
+- Tracks fills; publishes `OrderSubmittedEvent`, `OrderStatusChangedEvent`, `OrderFilledEvent`, `OrderCancelledEvent`
 
-### Logging (`monitoring/logging.py`)
-- **File:** `src/edrader/monitoring/logging.py`
-- **Purpose:** Structured logging with structlog
-- **Key features:** Context vars, console/JSON renderer based on TTY, filtering bound loggers
+## IBKRClient (`src/edrader/broker/ibkr_client.py`)
 
-## 8. Strategies (`strategies/`)
+Low-level IBKR connection manager.
 
-### Strategy Base (`strategies/base.py`)
-- **File:** `src/edrader/strategies/base.py`
-- **Purpose:** Abstract base class for all trading strategies
-- **Key features:** `emit_signal()` helper, lifecycle (start/stop), auto-subscribe to event types
-- **Constraint:** Strategies emit signals only — no orders, no positions, no IBKR calls
+- `ib_insync.IB()` typed as `Any` (no stubs) — `# type: ignore[no-untyped-call]` on constructor
+- Async connect/disconnect with configurable host/port/client_id, timeout, reconnect_interval
+- `is_connected()` health check; `ensure_connection()` with retry; publishes `BrokerDisconnectedEvent`/`BrokerReconnectedEvent`
 
-### StrategyLoader (`strategies/base.py`)
-- **File:** `src/edrader/strategies/base.py`
-- **Purpose:** Registry for creating strategy instances by ID
-- **Key features:** Register/create pattern, duplicate detection
+## SimulatedBroker (`src/edrader/replay/simulated_broker.py`)
 
-### SmaCrossoverStrategy (`strategies/examples/sma_crossover.py`)
-- **File:** `src/edrader/strategies/examples/sma_crossover.py`
-- **Purpose:** Simple moving average crossover strategy (BUY on fast>slow, SELL on fast<slow)
-- **Parameters:** fast_window (10), slow_window (30), default_size (100)
+Backtest order execution.
 
-### MeanReversionStrategy (`strategies/examples/mean_reversion.py`)
-- **File:** `src/edrader/strategies/examples/mean_reversion.py`
-- **Purpose:** Z-score mean reversion strategy
-- **Parameters:** window (20), entry_z (2.0), exit_z (0.5), default_size (100)
+- **Constructor**: `event_bus`, `slippage_bps` (0.0), `commission_per_trade` (0.0)
+- **Flow**: receives `OrderRequestedEvent` → creates `PendingOrder`
+  - MKT orders: fill immediately at current price; if no price available, add to `_held_market_orders`
+  - LMT orders: if limit price crossed by current price, fill; otherwise add to `_pending_orders`
+- **Fill execution**: 3 events per fill — `OrderSubmittedEvent` → `OrderStatusChangedEvent(Filled)` → `OrderFilledEvent`
+- **Price updates**: from `BarCloseEvent.close` and `MarketTickEvent.price`; pending/held orders checked on each price update
+- **Slippage**: `slippage_bps / 10000 * price` — added for BUY, subtracted for SELL
+- **Commission**: flat `commission_per_trade` added to `CompletedOrder`
+- **Data types**: `PendingOrder` and `CompletedOrder` dataclasses
 
-## 9. Persistence (`persistence/`)
+## HistoricalFeed (`src/edrader/replay/historical_feed.py`)
 
-### DatabaseManager (`persistence/database.py`)
-- **File:** `src/edrader/persistence/database.py`
-- **Purpose:** Centralized SQLAlchemy engine and session lifecycle
-- **Key features:** init_db (creates all tables), close, contextmanager session with auto commit/rollback
+Loads CSV data for backtesting.
 
-### Domain Models (`persistence/models.py`)
-- **File:** `src/edrader/persistence/models.py`
-- **Models:** `OrderRecord`, `FillRecord`, `PositionRecord`, `PnlSnapshotRecord`
+- **`load_csv(path, symbol, time_column, open/high/low/close/volume_column, date_format, start, end)`**: parses OHLCV CSV → `list[BarCloseEvent]`, sorted by timestamp
+- **`load_tick_csv(path, symbol, time_column, price/volume/bid/ask_column, date_format, start, end)`**: parses tick CSV → `list[MarketTickEvent]`, sorted by timestamp
+- **`filter_by_date(start, end)`**: filter loaded events by datetime range
+- **`clear()`**: reset events list
+- Properties: `events`, `event_count`
+- All time parsing: tries `date_format` via `strptime` or falls back to `datetime.fromisoformat`; always sets `tzinfo=UTC`
 
-## 10. Application Bootstrapping (`app/`)
+## ReplayEngine (`src/edrader/replay/engine.py`)
 
-### Application (`app/bootstrap.py`)
-- **File:** `src/edrader/app/bootstrap.py`
-- **Purpose:** Wires config, EventBus, and all component lifecycles
-- **Component groups built during startup:**
-  - **Live** (`paper`/`live` env): `IBKRClient` + `MarketDataFeed` + `BrokerAdapter` (shared `IB()`)
-  - **Simulated** (`development` env): `SimulatedBroker`
-  - **Monitoring** (all envs): `RiskEngine` + `ExecutionEngine` + `PositionManager` + `MetricsCollector` + `AlertManager`
-- **Startup sequence:**
-  1. `EventBus.start()` — dispatch loop begins
-  2. Build and start environment-appropriate broker components
-  3. In `development`: `HistoricalFeed` loads CSV files from `data/`, `ReplayEngine.run()` launched as background task
-  4. Build and start monitoring components
-  5. Wire `EventJournal` as wildcard subscriber (logs all events to SQLite)
-  6. Register strategies in `StrategyLoader`, create and start instances
-- **Shutdown sequence:** Stop strategies → stop components (reverse order) → close journal → stop event bus
-- **Key features:** `from_config_path()`, `startup()`, `shutdown()`
+Drives backtest event publishing.
 
-### Config (`app/config.py`)
-- **File:** `src/edrader/app/config.py`
-- **Purpose:** pydantic-based configuration with YAML loading
-- **Sub-configs:** `AppConfig`, `BrokerConfig`, `RiskConfig`, `PersistenceConfig`, `MonitoringConfig`, `ExecutionConfig`
+- **Constructor**: `event_bus`, `clock` (default ReplayClock)
+- **`load_events(events)`**: stable-sorts by `e.timestamp`; sets clock start time to first event
+- **`run()`**: enables `sync_mode`; iterates events calling `_publish_event()` then `_wait_for_next()`; disables sync_mode in `finally`
+  - `_publish_event(event)`: `clock.set_time(event.timestamp)` then `event_bus.publish(event)`
+  - `_wait_for_next(current, next)`: computes `delta = (next.timestamp - current.timestamp) / speed`; skips if <= 0; skips if adjusted < 1ms; sleeps in 0.1s chunks
+- **`step()`**: publish single event, advance index; used for debugging
+- **`pause()`/`resume()`**: set `_paused` flag; sleep 0.1s in run loop while paused
+- **`stop()`**: sets `_running = False`, run loop exits
 
-### Main Entry (`app/main.py`)
-- **File:** `src/edrader/app/main.py`
-- **Purpose:** Signal-handled asyncio entry point
+## ReplayClock (`src/edrader/replay/clock.py`)
+
+Time simulation for backtesting.
+
+- **State**: `_base_time`, `_elapsed` (seconds), `_speed` (multiplier), `_paused`
+- **`now()`**: returns `_base_time + elapsed * speed`; if paused, returns `_base_time`
+- **`set_time(dt)`**: resets `_elapsed = 0`, sets `_base_time = dt`
+- **`advance(seconds)`**: increments `_elapsed` (no-op if paused)
+- **`pause()`/`resume()`**: pause freezes time; resume recalculates `_base_time` from paused state
+- **`reset()`**: clears elapsed and sets speed to 1.0
+- No `wait_until()` — caller is responsible for pacing (ReplayEngine._wait_for_next)
+
+## Strategies (`src/edrader/strategies/`)
+
+### Base Classes
+
+- **`Strategy`** (ABC): `__init__(strategy_id, event_bus)`, abstract `on_event(event)`, lifecycle hooks `on_start()`/`on_stop()`, `event_types()` returns subscribed types (default `[BarCloseEvent]`), `emit_signal()` publishes `SignalGeneratedEvent`
+- **`StrategyLoader`**: registry with `register(id, class)` and `create(id, event_bus, **kwargs)`
+
+### Built-in Strategies
+
+- **`SmaCrossoverStrategy`**: BarCloseEvent subscriber; configurable fast_window (10) / slow_window (30); `_prices` deque per symbol; BUY on fast SMA crossing above slow, SELL on crossing below; fixed `default_size` (100)
+- **`MeanReversionStrategy`**: BarCloseEvent subscriber; configurable window (20), entry_z (2.0), exit_z (0.5); tracks position_side per symbol; BUY when z <= -entry_z, SELL when z >= entry_z; exit when |z| <= exit_z
+- **`VwapReversionStrategy`**: MarketTickEvent subscriber; configurable window (100), entry_pct (0.01), exit_pct (0.002); rolling VWAP with cumulative sum optimization; SELL when deviation > entry_pct, BUY when deviation < -entry_pct; exit when |deviation| < exit_pct
+
+## MetricsEngine (`src/edrader/replay/metrics.py`)
+
+Backtest performance computation.
+
+- **Constructor**: `event_bus`, `initial_capital` (100_000.0), `risk_free_rate` (0.05)
+- **Data collection**: subscribes to ExposureUpdatedEvent (equity curve), OrderFilledEvent (traded value), PositionClosedEvent (win/loss)
+- **`compute()`** → `BacktestMetrics`: total_return, annualized_return, sharpe_ratio, max_drawdown, win_rate, total_trades, winning_trades, losing_trades, turnover, start_equity, end_equity, peak_equity
+
+## MetricsCollector (`src/edrader/monitoring/metrics.py`)
+
+Live runtime monitoring.
+
+- **Constructor**: `event_bus`, `sample_interval` (1.0)
+- **Data collection**: `subscribe_all` handler counts events by type; periodic sampling loop for throughput computation
+- **`snapshot()`** → `RuntimeSnapshot`: queue_depth, subscriber_count, throughput_1m, total_published/dispatched/errors, top event/error types
+
+## AlertManager (`src/edrader/monitoring/alerts.py`)
+
+Alert generation for system events.
+
+- **Constructor**: `event_bus`, `cooldown_seconds` (60.0), `heartbeat_timeout` (30.0)
+- **Subscriptions**: BrokerDisconnectedEvent, BrokerReconnectedEvent, RiskViolationEvent, SignalRejectedEvent, TradingHaltedEvent, HeartbeatEvent
+- **Alert types**: broker_disconnected (CRITICAL), broker_reconnected (INFO), risk_violation (ERROR), signal_rejected (WARNING), trading_halted (CRITICAL), heartbeat_missed (ERROR)
+- **Cooldown**: per-alert-type cooldown prevents alert storms; heartbeat check loop runs every `heartbeat_timeout / 2` seconds
+
+## Application (`src/edrader/app/bootstrap.py`)
+
+Wires all components for live or simulated mode.
+
+- **`startup()`**: starts EventBus; builds and starts component groups based on environment (development→simulated, paper/live→IBKR); wires journal as subscribe_all; registers + starts strategies
+- **`shutdown()`**: stops strategies, component groups (in reverse order), closes journal, stops EventBus
+- **Component groups**: `LIVE_COMPONENTS` (IBKRClient, MarketDataFeed, BrokerAdapter), `SIMULATED_COMPONENTS` (SimulatedBroker), `MONITORING_COMPONENTS` (RiskEngine, ExecutionEngine, PositionManager, MetricsCollector, AlertManager)
+
+## Config (`src/edrader/app/config.py`)
+
+Pydantic configuration hierarchy, loaded from YAML.
+
+- `BrokerConfig`: host, port, client_id, connect_timeout, reconnect_interval, max_reconnect_attempts
+- `RiskConfig`: max_daily_loss, max_position_size, max_leverage, max_symbol_exposure, max_concurrent_positions
+- `ExecutionConfig`: sizing_method, percent_equity_fraction, default_order_type, max_retries, throttle_delay
+- `PersistenceConfig`: database_url, echo
+- `MonitoringConfig`: metrics_enabled, metrics_port
+- `AppConfig`: name, environment (development/paper/live), log_level
+- `TradingConfig`: wraps all above with defaults
+
+## Persistence (`src/edrader/persistence/`)
+
+- **`DatabaseManager`**: sync SQLAlchemy engine; `init_db()` creates tables; `session()` context manager with commit/rollback; `close()` disposes
+- **Models** (4 ORM tables): `OrderRecord`, `FillRecord`, `PositionRecord`, `PnlSnapshotRecord`

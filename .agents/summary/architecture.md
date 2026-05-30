@@ -1,197 +1,88 @@
 # Architecture
 
-## Overview
-The trading platform is an **event-driven modular monolith** — a single process with a single asyncio event loop where all communication between modules flows through typed domain events on a central `EventBus`.
+## High-Level Design
 
-```mermaid
-graph TB
-    subgraph Sources
-        STR[Strategies]
-        IB[IBKR / Gateway]
-        HF[Historical Feed]
-    end
+Modular monolith, single process, single asyncio event loop. All inter-component communication flows through the `EventBus` as typed domain events (26 frozen dataclass types). The same code path handles live trading and backtesting — only the data source, clock, and broker implementation differ. Event execution spans a pipeline of risk validation, sizing, order submission, simulated/live fill, position tracking, and metrics collection.
 
-    subgraph Core
-        EB[EventBus]
-        EJ[EventJournal]
-    end
-
-    subgraph Processing
-        RE[RiskEngine]
-        EE[ExecutionEngine]
-        PM[PositionManager]
-        ME[MetricsEngine]
-        AG[AlertManager]
-    end
-
-    subgraph Execution
-        SA[SimulatedBroker]
-        BA[BrokerAdapter]
-        MDF[MarketDataFeed]
-    end
-
-    STR -->|SignalGeneratedEvent| EB
-    IB -->|MarketTickEvent| EB
-    HF -->|BarCloseEvent| EB
-    EB --> RE
-    RE -->|SignalApprovedEvent| EB
-    EB --> EE
-    EE -->|OrderRequestedEvent| EB
-    EB --> SA
-    EB --> BA
-    SA -->|OrderFilledEvent| EB
-    BA -->|OrderFilledEvent| EB
-    EB --> PM
-    PM -->|ExposureUpdatedEvent| EB
-    EB --> ME
-    EB --> AG
-    EB -.->|logs all| EJ
 ```
+Live:   IBKR Gateway → MarketDataFeed → EventBus → RiskEngine → ExecutionEngine → BrokerAdapter → PositionManager
+Backtest: HistoricalFeed → EventBus  → RiskEngine → ExecutionEngine → SimulatedBroker → PositionManager
+```
+
+## Core Principles
+
+1. **Events as single source of truth** — 26 frozen dataclass event types with `to_dict()`/`from_dict()` serialization. EventJournal persists all events to SQLite for replay and audit.
+2. **IBKR types stay in broker/** — `ib_insync.IB` typed as `Any` (no stubs), all cross-module communication uses domain events.
+3. **Strategies receive events, emit signals** — never place orders, call IBKR, or manage positions. Each strategy declares which event types it subscribes to via `event_types()`.
+4. **Lifecycle-managed components** — `start()`/`stop()` with idempotency guards; unsubscribe callables tracked and cleared on stop.
+5. **Live and backtest share code path** — only data source (MarketDataFeed vs HistoricalFeed), clock (wall vs replay), and broker (BrokerAdapter vs SimulatedBroker) differ.
+
+## Event Flow (Signal → Fill)
+
+```
+Strategy.on_event(event)
+  → if signal triggered: emit_signal(symbol, side, confidence, size)
+  → EventBus.publish(SignalGeneratedEvent)
+
+RiskEngine subscriber:
+  → 6 checks (max_position_size, max_daily_loss, max_leverage, max_symbol_exposure,
+              max_concurrent_positions, stale_market)
+  → kill_switch blocks all signals
+  → publish SignalApprovedEvent or SignalRejectedEvent (+ RiskViolationEvent on reject)
+
+ExecutionEngine subscriber:
+  → throttle check (per-symbol cooldown)
+  → SizingEngine.compute_size() → final quantity
+  → publish OrderRequestedEvent
+
+SimulatedBroker subscriber:
+  → create order, fill at current price (or hold for next price tick)
+  → publish OrderSubmittedEvent → OrderStatusChangedEvent(Filled) → OrderFilledEvent
+  → 3 events per fill
+
+PositionManager subscriber:
+  → update position (avg_cost, realized_pnl)
+  → publish PositionOpenedEvent / PositionClosedEvent / PnLUpdatedEvent / PositionUpdate
+  → publish ExposureUpdatedEvent (gross/net exposure, leverage, equity)
+
+MetricsEngine subscriber:
+  → track equity curve, trade outcomes, traded value
+  → compute(): total_return, sharpe, max_drawdown, win_rate
+```
+
+## Component Substitutability
+
+| Live | Backtest |
+|------|----------|
+| `MarketDataFeed` (IBKR ticks/bars) | `HistoricalFeed` (CSV file) |
+| `BrokerAdapter` (IBKR orders) | `SimulatedBroker` (price-based fill) |
+| `IBKRClient` (connection) | — |
+| Wall clock | `ReplayClock` (simulated) |
+| `EventBus` (async dispatch) | `EventBus` (sync_mode during replay) |
 
 ## Key Design Decisions
 
-### Event-Driven Architecture
-- `EventBus` is the central nervous system — a typed async pub/sub with dual priority queues (HIGH/CRITICAL vs NORMAL/LOW)
-- All components subscribe to specific event types and publish events
-- No direct method calls between business modules (except `broker/` internals)
-- EventJournal provides SQLite append-only persistence for replay/audit
+| Decision | Rationale |
+|----------|-----------|
+| `sync_mode` for backtest | `EventBus.sync_mode = True` makes `publish()` dispatch subscribers synchronously, eliminating asyncio task-switching overhead (8.4× speedup: 184s → 22s) |
+| PriorityQueue get() fast path | `get_nowait()` on both queues first, then 1ms `wait_for(high.get())` fallback, then blocking `normal.get()` — avoids 10ms timeout |
+| Sub-1ms sleep skip | `_wait_for_next` skips `asyncio.sleep` when adjusted delta < 1ms (below OS timer resolution) |
+| SimulatedBroker 3-events-per-fill | Each fill publishes Submitted + StatusChanged + Filled — contributes significantly to pipeline cost |
+| Journal batch writes | `batch_size` buffers events; `flush()` does raw SQL `executemany`; 4.2× faster than per-row inserts |
+| SizingEngine decoupled | Separate class with method-based sizing (fixed, percent_equity, volatility) |
+| No per-bar drain() in backtest | `sync_mode` eliminates need to `await drain()` between events |
 
-### Component Lifecycle
-Every component follows a consistent lifecycle pattern:
-```mermaid
-stateDiagram-v2
-    [*] --> Stopped
-    Stopped --> Running: start()
-    Running --> Stopped: stop()
-    Running --> Running: start() [idempotent, no-op]
-    Stopped --> Stopped: stop() [idempotent, no-op]
-```
+## Dual Metrics System
 
-Each component:
-- Has a boolean `is_running` property
-- Subscribes to events on `start()` and returns unsubscribe callables
-- Unsubscribes on `stop()`
-- Ignores events received when `_running` is False
+- **`MetricsCollector`** (monitoring/): live runtime statistics — throughput, event counts, queue depth, subscriber counts; periodic sampling.
+- **`MetricsEngine`** (replay/): backtest performance — equity curve, total return, Sharpe ratio, max drawdown, win rate, turnover; `compute()` returns `BacktestMetrics` dataclass.
 
-### Event Bus Architecture
-```mermaid
-graph LR
-    subgraph Publishers
-        A[Strategy]
-        B[MarketData]
-        C[IBKRClient]
-    end
-    A -->|put| PQ[PriorityQueue]
-    B -->|put| PQ
-    C -->|put| PQ
-    PQ -->|get| DP[Dispatch Loop]
-    DP -->|dispatch| S1[Subscriber 1]
-    DP -->|dispatch| S2[Subscriber 2]
-    DP -->|dispatch| S3[Subscriber 3]
-```
+## Files
 
-- `PriorityQueue` wraps two `asyncio.Queue` instances (high/normal)
-- Dispatch loop runs in a single `asyncio.Task`, draining events sequentially
-- Errors in handlers don't crash the bus — they're logged and optionally passed to an error handler
-- `drain()` awaits both queues to be empty (for test synchronization)
-
-### IBKR Isolation Boundary
-- `ib_insync` types (`IB`, `Contract`, `Ticker`, `Trade`) are typed as `Any` and never appear outside `broker/`
-- All cross-module communication uses domain events defined in `events/event_types.py`
-- The `broker/` module has three components:
-  - `IBKRClient` — connection lifecycle, heartbeat, reconnection
-  - `MarketDataFeed` — tick subscriptions, bar aggregation
-  - `BrokerAdapter` — order placement, status tracking, fill handling
-
-### Live vs Backtest Parity
-- Same code path executes both live and in backtest
-- Live: `IBKRClient` + `MarketDataFeed` + `BrokerAdapter` (real IBKR)
-- Backtest: `ReplayClock` + `HistoricalFeed` + `SimulatedBroker` (simulated)
-- All downstream components (`RiskEngine`, `ExecutionEngine`, `PositionManager`, etc.) remain identical
-
-```mermaid
-graph TB
-    subgraph Live
-        IB[IBKR Gateway]
-        MDF[MarketDataFeed]
-        BA[BrokerAdapter]
-    end
-    subgraph Backtest
-        RC[ReplayClock]
-        HF[HistoricalFeed]
-        SB[SimulatedBroker]
-    end
-    subgraph Shared
-        EB[EventBus]
-        RE[RiskEngine]
-        EE[ExecutionEngine]
-        PM[PositionManager]
-    end
-    Live --> EB
-    Backtest --> EB
-    EB --> Shared
-```
-
-## Application Startup (\`bootstrap.py\`)
-
-\`\`\`mermaid
-flowchart TD
-    subgraph Application.startup
-        direction TB
-        Bus[EventBus.start] --> Env{Environment?}
-        Env -->|paper/live| LiveGroup
-        Env -->|development| DevGroup
-        LiveGroup --> MonGroup
-        DevGroup --> MonGroup
-    end
-
-    subgraph LiveGroup[Paper/Live Components]
-        IBKR[IBKRClient.start]
-        MDF[MarketDataFeed.start]
-        BA[BrokerAdapter.start]
-    end
-
-    subgraph DevGroup[Development Components]
-        SB[SimulatedBroker.start]
-        HF[HistoricalFeed.load_csv]
-        RE[ReplayEngine.run<br/>as background task]
-    end
-
-    subgraph MonGroup[Monitoring Components]
-        Risk[RiskEngine.start]
-        Exec[ExecutionEngine.start]
-        PM[PositionManager.start]
-        MC[MetricsCollector.start]
-        AM[AlertManager.start]
-    end
-
-    MonGroup --> Journal[Journal wired as wildcard subscriber]
-    Journal --> StratReg[Strategies registered in StrategyLoader]
-    StratReg --> StratStart[Strategy instances created + started]
-```
-
-- \`Application.startup()\` is the single entry point called from \`main.py\`
-- Component groups are built via factory methods (\`_build_live_components\`, \`_build_monitoring_components\`, etc.)
-- All components share the same \`EventBus\` instance injected at construction
-- \`Application.shutdown()\` stops strategies first, then component groups in reverse order, closes journal, stops event bus
-- In development mode, \`ReplayEngine.run()\` is launched as an \`asyncio.Task\` and publishes CSV data as \`BarCloseEvent\` at clock-driven cadence
-- \`StrategyLoader\` registers both \`SmaCrossoverStrategy\` and \`MeanReversionStrategy\`; instances are created and started for all environments
-
-## Module Dependency Graph
-```mermaid
-graph TD
-    app --> events
-    app --> monitoring
-    broker --> events
-    broker --> app
-    events --> monitoring
-    execution --> events
-    monitoring --> events
-    persistence --> events
-    portfolio --> events
-    replay --> events
-    risk --> events
-    strategies --> events
-```
-
-Note: All modules depend on `events/` (for event types and bus) and `monitoring/` (for logging). The `app/` module wires everything together at startup.
+- `src/edrader/events/bus.py` — EventBus, PriorityQueue, DispatchMetrics, SubscriberEntry
+- `src/edrader/events/event_types.py` — 26 event types, BaseEvent, EventPriority enum
+- `src/edrader/events/journal.py` — EventJournal with SQLite persistence
+- `src/edrader/app/bootstrap.py` — Application lifecycle, wiring for live/simulated/monitoring
+- `src/edrader/app/config.py` — Pydantic settings (TradingConfig, BrokerConfig, etc.)
+- `scripts/backtest.py` — End-to-end backtest runner
+- `scripts/loadtest.py` — Step-by-step loadtest profiler

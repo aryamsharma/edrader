@@ -1,21 +1,43 @@
 # Data Models
 
-## Event Models (`events/event_types.py`)
+## Domain Events (26 types in `src/edrader/events/event_types.py`)
 
-### BaseEvent
-```python
-@dataclass(frozen=True, slots=True)
-class BaseEvent:
-    event_id: str          # uuid4 hex (16 chars)
-    timestamp: datetime    # UTC
-    priority: EventPriority  # LOW, NORMAL, HIGH, CRITICAL
-    correlation_id: str    # For tracing related events
-    source: str            # Component that created this event
+All inherit from `BaseEvent` (frozen dataclass with `slots=True`, `to_dict()`/`from_dict()` serialization).
+
+### Inheritance
+
+```
+BaseEvent (event_id, timestamp, priority, correlation_id, source)
+├── MarketTickEvent      (symbol, price, volume, bid, ask)
+├── BarCloseEvent        (symbol, open, high, low, close, volume)
+├── MarketOpenEvent      (symbol)
+├── MarketCloseEvent     (symbol)
+├── SignalGeneratedEvent (strategy_id, symbol, side, confidence, suggested_size)
+├── SignalApprovedEvent  (strategy_id, symbol, side, confidence, suggested_size)
+├── SignalRejectedEvent  (strategy_id, symbol, reason)
+├── StrategyErrorEvent   (strategy_id, error)
+├── RiskViolationEvent   (strategy_id, rule, reason)
+├── TradingHaltedEvent   (reason)
+├── ExposureLimitEvent   (current_exposure, limit)
+├── ExposureUpdatedEvent (gross_exposure, net_exposure, leverage, long_count, short_count, equity)
+├── OrderRequestedEvent  (symbol, side, quantity, order_type, limit_price)
+├── OrderSubmittedEvent  (order_id, symbol, side, quantity, order_type, limit_price)
+├── OrderFilledEvent     (order_id, symbol, side, fill_price, fill_quantity)
+├── OrderCancelledEvent  (order_id, reason)
+├── OrderStatusChangedEvent (order_id, status)
+├── PositionOpenedEvent  (symbol, quantity, avg_cost)
+├── PositionClosedEvent  (symbol, realized_pnl)
+├── PnLUpdatedEvent      (symbol, unrealized_pnl, realized_pnl)
+├── AccountSummaryUpdate (cash, buying_power, gross_position_value, net_liquidation)
+├── PositionUpdate       (symbol, position, avg_cost, market_price)
+├── BrokerDisconnectedEvent (reason)
+├── BrokerReconnectedEvent  (attempts)
+├── HeartbeatEvent       (no extra fields)
+└── AlertEvent           (alert_type, message, severity)
 ```
 
-All 27 concrete event types extend `BaseEvent` with domain-specific fields (see `interfaces.md` for full catalog).
-
 ### EventPriority Enum
+
 ```python
 class EventPriority(Enum):
     LOW = auto()
@@ -24,191 +46,158 @@ class EventPriority(Enum):
     CRITICAL = auto()
 ```
 
-## Domain Dataclasses
+## EventJournal Schema (SQLite)
 
-### Position (`portfolio/position.py`)
+```sql
+CREATE TABLE event_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence INTEGER NOT NULL,
+    event_type VARCHAR(128) NOT NULL,
+    event_id VARCHAR(64) NOT NULL,
+    timestamp DATETIME NOT NULL,
+    payload TEXT NOT NULL,
+    recorded_at DATETIME NOT NULL
+);
+CREATE INDEX ix_event_journal_event_id ON event_journal(event_id);
+```
+
+## ORM Models (`src/edrader/persistence/models.py`)
+
+4 SQLAlchemy ORM models for long-term storage.
+
+| Model | Table | Key Columns |
+|-------|-------|-------------|
+| `OrderRecord` | `orders` | id, order_id (unique, indexed), symbol, side, quantity, filled_quantity, order_type, limit_price, status, created_at, updated_at |
+| `FillRecord` | `fills` | id, order_id (indexed), symbol, side, fill_price, fill_quantity, fill_time, created_at |
+| `PositionRecord` | `positions` | id, symbol (unique, indexed), quantity, avg_cost, updated_at |
+| `PnlSnapshotRecord` | `pnl_snapshots` | id, symbol (indexed), unrealized_pnl, realized_pnl, snapshot_time, created_at |
+
+## Configuration Models (`src/edrader/app/config.py`)
+
+Pydantic models loaded from YAML via `load_config(path)` → `TradingConfig`.
+
+```yaml
+# Example YAML
+app:
+  name: trading-platform
+  environment: development  # development | paper | live
+  log_level: DEBUG
+broker:
+  host: 127.0.0.1
+  port: 4001
+  client_id: 1
+  connect_timeout: 30
+  reconnect_interval: 5.0
+  max_reconnect_attempts: 10
+risk:
+  max_daily_loss: 1000.0
+  max_position_size: 100
+  max_leverage: 2.0
+  max_symbol_exposure: 50000.0
+  max_concurrent_positions: 10
+execution:
+  sizing_method: fixed           # fixed | percent_equity | volatility
+  percent_equity_fraction: 0.02
+  default_order_type: MKT
+  max_retries: 3
+  throttle_delay: 0.5
+persistence:
+  database_url: sqlite:///data/trading.db
+  echo: false
+monitoring:
+  metrics_enabled: true
+  metrics_port: 9090
+```
+
+## Internal Dataclasses
+
+### Position (`src/edrader/portfolio/position.py`)
+
 ```python
 @dataclass
 class Position:
-    symbol: str
-    quantity: int            # Positive=long, Negative=short
-    avg_cost: float          # Average entry price
-    realized_pnl: float      # Cumulative realized PnL
+    symbol: str = ""
+    quantity: int = 0
+    avg_cost: float = 0.0
+    realized_pnl: float = 0.0
 ```
 
-### ExposureSnapshot (`portfolio/position.py`)
+### ExposureSnapshot (`src/edrader/portfolio/position.py`)
+
 ```python
 @dataclass
 class ExposureSnapshot:
-    gross_exposure: float    # Sum of |position| * price
-    net_exposure: float      # Long - short exposure
-    long_count: int          # Number of long positions
-    short_count: int         # Number of short positions
+    gross_exposure: float = 0.0
+    net_exposure: float = 0.0
+    long_count: int = 0
+    short_count: int = 0
 ```
 
-### BacktestMetrics (`replay/metrics.py`)
-```python
-@dataclass
-class BacktestMetrics:
-    total_return: float      # (end - start) / start
-    annualized_return: float
-    sharpe_ratio: float
-    max_drawdown: float      # Peak-to-trough percentage
-    win_rate: float
-    total_trades: int
-    winning_trades: int
-    losing_trades: int
-    turnover: float          # Total traded / avg equity
-    start_equity: float
-    end_equity: float
-    peak_equity: float
-```
+### PendingOrder & CompletedOrder (`src/edrader/replay/simulated_broker.py`)
 
-### PendingOrder / CompletedOrder (`replay/simulated_broker.py`)
 ```python
 @dataclass
 class PendingOrder:
-    symbol: str
-    side: str                # BUY / SELL
-    quantity: int
-    order_type: str          # MKT / LMT
-    limit_price: float | None
-    order_id: str
+    symbol: str; side: str; quantity: int
+    order_type: str; limit_price: float | None; order_id: str
 
 @dataclass
 class CompletedOrder:
-    order_id: str
-    symbol: str
-    side: str
-    quantity: int
-    fill_price: float
-    commission: float
+    order_id: str; symbol: str; side: str
+    quantity: int; fill_price: float; commission: float = 0.0
 ```
 
-### RuntimeSnapshot (`monitoring/metrics.py`)
+### BacktestMetrics (`src/edrader/replay/metrics.py`)
+
+```python
+@dataclass
+class BacktestMetrics:
+    total_return: float = 0.0
+    annualized_return: float = 0.0
+    sharpe_ratio: float = 0.0
+    max_drawdown: float = 0.0
+    win_rate: float = 0.0
+    total_trades: int = 0
+    winning_trades: int = 0
+    losing_trades: int = 0
+    turnover: float = 0.0
+    start_equity: float = 0.0
+    end_equity: float = 0.0
+    peak_equity: float = 0.0
+```
+
+### RuntimeSnapshot (`src/edrader/monitoring/metrics.py`)
+
 ```python
 @dataclass
 class RuntimeSnapshot:
-    queue_depth: int
-    subscriber_count: int
-    throughput_1m: float
-    total_published: int
-    total_dispatched: int
-    total_errors: int
-    top_event_types: list[tuple[str, int]]
-    top_error_types: list[tuple[str, int]]
+    queue_depth: int = 0
+    subscriber_count: int = 0
+    throughput_1m: float = 0.0
+    total_published: int = 0
+    total_dispatched: int = 0
+    total_errors: int = 0
+    top_event_types: list[tuple[str, int]] = field(default_factory=list)
+    top_error_types: list[tuple[str, int]] = field(default_factory=list)
 ```
 
-### DispatchMetrics (`events/bus.py`)
+### SubscriberEntry (`src/edrader/events/bus.py`)
+
+```python
+class SubscriberEntry:
+    handler: AsyncHandler
+    event_filter: EventFilter | None
+    name: str
+```
+
+### DispatchMetrics (`src/edrader/events/bus.py`)
+
 ```python
 class DispatchMetrics:
-    total_published: int
-    total_dispatched: int
-    total_errors: int
+    total_published: int = 0
+    total_dispatched: int = 0
+    total_errors: int = 0
     events_by_type: dict[str, int]
     errors_by_type: dict[str, int]
+    def snapshot(self) -> dict[str, Any]: ...
 ```
-
-## Database Models (`persistence/models.py`)
-
-All ORM models use SQLAlchemy `DeclarativeBase`:
-
-### OrderRecord (`orders` table)
-| Column | Type | Constraints |
-|---|---|---|
-| id | Integer | PK, autoincrement |
-| order_id | String(64) | NOT NULL, UNIQUE, indexed |
-| symbol | String(32) | NOT NULL |
-| side | String(8) | NOT NULL |
-| quantity | Integer | NOT NULL |
-| filled_quantity | Integer | NOT NULL, default 0 |
-| order_type | String(16) | NOT NULL |
-| limit_price | Float | NULLABLE |
-| status | String(32) | NOT NULL, default 'PendingSubmit' |
-| created_at | DateTime(tz) | NOT NULL |
-| updated_at | DateTime(tz) | NOT NULL |
-
-### FillRecord (`fills` table)
-| Column | Type | Constraints |
-|---|---|---|
-| id | Integer | PK, autoincrement |
-| order_id | String(64) | NOT NULL, indexed |
-| symbol | String(32) | NOT NULL |
-| side | String(8) | NOT NULL |
-| fill_price | Float | NOT NULL |
-| fill_quantity | Integer | NOT NULL |
-| fill_time | DateTime(tz) | NOT NULL |
-| created_at | DateTime(tz) | NOT NULL |
-
-### PositionRecord (`positions` table)
-| Column | Type | Constraints |
-|---|---|---|
-| id | Integer | PK, autoincrement |
-| symbol | String(32) | NOT NULL, UNIQUE, indexed |
-| quantity | Integer | NOT NULL |
-| avg_cost | Float | NOT NULL |
-| updated_at | DateTime(tz) | NOT NULL |
-
-### PnlSnapshotRecord (`pnl_snapshots` table)
-| Column | Type | Constraints |
-|---|---|---|
-| id | Integer | PK, autoincrement |
-| symbol | String(32) | NOT NULL, indexed |
-| unrealized_pnl | Float | NOT NULL |
-| realized_pnl | Float | NOT NULL |
-| snapshot_time | DateTime(tz) | NOT NULL |
-| created_at | DateTime(tz) | NOT NULL |
-
-### EventRecord (`event_journal` table, from `events/journal.py`)
-| Column | Type | Constraints |
-|---|---|---|
-| id | Integer | PK, autoincrement |
-| sequence | Integer | NOT NULL, monotonic |
-| event_type | String(128) | NOT NULL |
-| event_id | String(64) | NOT NULL, indexed |
-| timestamp | DateTime(tz) | NOT NULL |
-| payload | Text | NOT NULL (JSON string) |
-| recorded_at | DateTime(tz) | NOT NULL |
-
-## Config Models (`app/config.py`)
-
-```python
-class TradingConfig(BaseModel):
-    app: AppConfig           # name, environment, log_level
-    broker: BrokerConfig     # host, port, reconnect params
-    risk: RiskConfig         # max_daily_loss, max_position_size, etc.
-    persistence: PersistenceConfig  # database_url, echo
-    monitoring: MonitoringConfig    # metrics_enabled, metrics_port
-    execution: ExecutionConfig      # sizing_method, throttle_delay, etc.
-```
-
-## Serialization
-
-Events serialize via `to_dict()` / `from_dict()`:
-
-```python
-# Serialize
-event = MarketTickEvent(symbol="AAPL", price=150.0)
-data = event.to_dict()
-# {
-#   "event_type": "MarketTickEvent",
-#   "event_id": "a1b2c3d4e5f6g7h8",
-#   "timestamp": "2026-05-27T...",
-#   "priority": "NORMAL",
-#   "correlation_id": "",
-#   "source": "",
-#   "symbol": "AAPL",
-#   "price": 150.0,
-#   "volume": 0,
-#   "bid": 0.0,
-#   "ask": 0.0
-# }
-
-# Deserialize
-restored = BaseEvent.from_dict(data)
-```
-
-- Enum values serialized as `.name` (string)
-- Timestamps serialized as ISO format, restored via `fromisoformat`
-- Unknown event_type falls back to `BaseEvent`
-- Custom `to_dict` uses `default=str` for non-serializable fields (e.g., `datetime` in some nested cases)
