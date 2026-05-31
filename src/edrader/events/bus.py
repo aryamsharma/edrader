@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time as _time
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from typing import Any
@@ -23,14 +24,22 @@ class DispatchMetrics:
         self.total_errors: int = 0
         self.events_by_type: dict[str, int] = defaultdict(int)
         self.errors_by_type: dict[str, int] = defaultdict(int)
+        self._rate_last_time: float = _time.monotonic()
+        self._rate_last_count: int = 0
 
     def snapshot(self) -> dict[str, Any]:
+        now = _time.monotonic()
+        elapsed = now - self._rate_last_time
+        pub_rate = (self.total_published - self._rate_last_count) / elapsed if elapsed > 0 else 0.0
+        self._rate_last_time = now
+        self._rate_last_count = self.total_published
         return {
             "total_published": self.total_published,
             "total_dispatched": self.total_dispatched,
             "total_errors": self.total_errors,
             "events_by_type": dict(self.events_by_type),
             "errors_by_type": dict(self.errors_by_type),
+            "publish_rate": round(pub_rate, 1),
         }
 
 
