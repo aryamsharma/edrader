@@ -109,7 +109,7 @@ Modules SHOULD NOT:
 | Language | Python 3.12+ |
 | Async Runtime | asyncio |
 | Broker Connectivity | IBKR API |
-| IBKR Wrapper | ib_async or ib_insync |
+| IBKR Wrapper | ib_async |
 | Local Database | SQLite |
 | ORM / DB Layer | SQLAlchemy |
 | Data Processing | pandas / polars |

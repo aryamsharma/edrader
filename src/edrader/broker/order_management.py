@@ -141,10 +141,10 @@ class BrokerAdapter:
 
     def _make_contract(self, symbol: str, exchange: str, currency: str, sec_type: str) -> Any:
         if sec_type == "STK":
-            from ib_insync import Stock
+            from ib_async import Stock
 
             return Stock(symbol, exchange, currency)
-        from ib_insync import Contract
+        from ib_async import Contract
 
         return Contract(symbol, sec_type, exchange, currency=currency)  # type: ignore[arg-type]
 
@@ -152,18 +152,18 @@ class BrokerAdapter:
         self, side: str, quantity: int, order_type: str, limit_price: float | None = None
     ) -> Any:
         if order_type == "MKT":
-            from ib_insync import MarketOrder
+            from ib_async import MarketOrder
 
             return MarketOrder(side, quantity)
         if order_type == "LMT" and limit_price is not None:
-            from ib_insync import LimitOrder
+            from ib_async import LimitOrder
 
             return LimitOrder(side, quantity, limit_price)
         if order_type == "STP" and limit_price is not None:
-            from ib_insync import StopOrder
+            from ib_async import StopOrder
 
             return StopOrder(side, quantity, limit_price)
-        from ib_insync import MarketOrder
+        from ib_async import MarketOrder
 
         return MarketOrder(side, quantity)
 

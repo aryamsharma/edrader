@@ -59,7 +59,7 @@ tests/
 | pydantic ^2.0 | Configuration | `TradingConfig`, sub-configs, YAML loading |
 | structlog ^24.0 | Structured logging | All modules via `get_logger(__name__)` |
 | SQLAlchemy ^2.0 | ORM | Domain models (OrderRecord, FillRecord, etc.) |
-| ib_insync ^0.9.86 | IBKR API | `IBKRClient`, `MarketDataFeed`, `BrokerAdapter` |
+| ib_async ^0.9.86 | IBKR API | `IBKRClient`, `MarketDataFeed`, `BrokerAdapter` |
 | pytest ^8.0 | Testing | 443 tests, asyncio_mode=auto |
 | ruff ^0.7 | Linting/formatting | 100 char line-length, double quotes |
 | mypy ^1.12 | Type checking | Strict mode, excludes tests/ |
@@ -67,7 +67,7 @@ tests/
 
 ## Design Principles
 - **Events as single source of truth**: All inter-module communication via domain events on `EventBus`
-- **IBKR isolation**: `ib_insync` types never leak outside `broker/` module
+- **IBKR isolation**: `ib_async` types never leak outside `broker/` module
 - **Strategies emit signals only**: Never place orders or manage positions directly
 - **Same code for live and backtest**: Only data source and clock differ
 - **All components are lifecycle-managed**: start()/stop() pattern with idempotency

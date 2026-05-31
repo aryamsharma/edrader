@@ -180,10 +180,10 @@ class MarketDataFeed:
 
     def _make_contract(self, symbol: str, exchange: str, currency: str, sec_type: str) -> Any:
         if sec_type == "STK":
-            from ib_insync import Stock
+            from ib_async import Stock
 
             return Stock(symbol, exchange, currency)
-        from ib_insync import Contract
+        from ib_async import Contract
 
         return Contract(symbol, sec_type, exchange, currency=currency)  # type: ignore[arg-type]
 

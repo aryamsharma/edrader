@@ -114,7 +114,7 @@ All 10 phases complete (P0–P10). 434 tests across 22 files.
 - **Events as single source of truth** — 26 frozen dataclass event types (slots=True), `to_dict()`/`from_dict()` serialization, `EventPriority` (LOW/NORMAL/HIGH/CRITICAL)
 - **`EventBus`** — dual `asyncio.Queue` (high+critical vs normal+low), `sync_mode` property for backtest (synchronous dispatch), handler cache for O(1) dispatch lookup, `subscriber_timeout` (5s default)
 - **`EventJournal`** — SQLite append-only event store with batch writes, raw SQL `executemany`, `fast_mode` pragmas
-- **IBKR types MUST NOT leak outside `broker/`** — `ib_insync.IB` typed as `Any`, all cross-module communication uses domain events
+- **IBKR types MUST NOT leak outside `broker/`** — `ib_async.IB` typed as `Any`, all cross-module communication uses domain events
 - **Strategies emit signals only** — abstract `on_event()` method, `emit_signal()` helper; never place orders, call IBKR, or manage positions
 - **Same code path for live and backtest** — only data source (MarketDataFeed vs HistoricalFeed), clock, and broker (BrokerAdapter vs SimulatedBroker) differ
 - **All components lifecycle-managed** — `start()`/`stop()` with idempotency guards, unsubscribe callables tracked and cleared on stop
@@ -184,7 +184,7 @@ MetricsEngine subscriber:
 
 ## Gotchas
 
-- `ib_insync.IB` has no type stubs — `# type: ignore[no-untyped-call]` on `IB()` constructor
+- `ib_async.IB` has no type stubs — `# type: ignore[no-untyped-call]` on `IB()` constructor
 - SQLAlchemy column access needs `# type: ignore[assignment]` / `# type: ignore[arg-type]`
 - `reconnect_interval` in `BrokerConfig` is `float` (not int)
 - `.agents/summary/` contains full documentation: architecture, components, interfaces, data_models, workflows, dependencies

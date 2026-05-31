@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 from typing import Any
 
-from ib_insync import IB
+from ib_async import IB
 
 from edrader.app.config import BrokerConfig
 from edrader.broker import task_error_logger

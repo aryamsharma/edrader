@@ -92,7 +92,7 @@ Tracks positions, exposures, and P&L per instrument.
 
 Live market data from IBKR.
 
-- Connects to IBKR via `ib_insync`; requests market data for configured contracts
+- Connects to IBKR via `ib_async`; requests market data for configured contracts
 - Publishes `MarketTickEvent` (HIGH priority) and `BarCloseEvent`
 - Bar aggregation is tick-triggered: emitted when a tick arrives after the time window
 
@@ -100,14 +100,14 @@ Live market data from IBKR.
 
 Live order execution via IBKR.
 
-- Subscribes to `OrderRequestedEvent`; places orders via `ib_insync`
+- Subscribes to `OrderRequestedEvent`; places orders via `ib_async`
 - Tracks fills; publishes `OrderSubmittedEvent`, `OrderStatusChangedEvent`, `OrderFilledEvent`, `OrderCancelledEvent`
 
 ## IBKRClient (`src/edrader/broker/ibkr_client.py`)
 
 Low-level IBKR connection manager.
 
-- `ib_insync.IB()` typed as `Any` (no stubs) — `# type: ignore[no-untyped-call]` on constructor
+- `ib_async.IB()` typed as `Any` (no stubs) — `# type: ignore[no-untyped-call]` on constructor
 - Async connect/disconnect with configurable host/port/client_id, timeout, reconnect_interval
 - `is_connected()` health check; `ensure_connection()` with retry; publishes `BrokerDisconnectedEvent`/`BrokerReconnectedEvent`
 

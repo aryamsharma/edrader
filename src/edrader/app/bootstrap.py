@@ -44,7 +44,7 @@ class Application:
     def _build_live_components(self) -> list[Any]:
         components: list[Any] = []
 
-        from ib_insync import IB
+        from ib_async import IB
 
         from edrader.broker.ibkr_client import IBKRClient
         from edrader.broker.market_data import MarketDataFeed

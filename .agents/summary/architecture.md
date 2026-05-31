@@ -12,7 +12,7 @@ Backtest: HistoricalFeed → EventBus  → RiskEngine → ExecutionEngine → Si
 ## Core Principles
 
 1. **Events as single source of truth** — 26 frozen dataclass event types with `to_dict()`/`from_dict()` serialization. EventJournal persists all events to SQLite for replay and audit.
-2. **IBKR types stay in broker/** — `ib_insync.IB` typed as `Any` (no stubs), all cross-module communication uses domain events.
+2. **IBKR types stay in broker/** — `ib_async.IB` typed as `Any` (no stubs), all cross-module communication uses domain events.
 3. **Strategies receive events, emit signals** — never place orders, call IBKR, or manage positions. Each strategy declares which event types it subscribes to via `event_types()`.
 4. **Lifecycle-managed components** — `start()`/`stop()` with idempotency guards; unsubscribe callables tracked and cleared on stop.
 5. **Live and backtest share code path** — only data source (MarketDataFeed vs HistoricalFeed), clock (wall vs replay), and broker (BrokerAdapter vs SimulatedBroker) differ.

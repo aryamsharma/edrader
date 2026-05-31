@@ -5,7 +5,7 @@
 | Package | Version | Use |
 |---------|---------|-----|
 | `python` | ^3.12 | Runtime |
-| `ib_insync` | ^0.9.86 | IBKR connection (no type stubs; typed as `Any`) |
+| `ib_async` | ^0.9.86 | IBKR connection (no type stubs; typed as `Any`) |
 | `structlog` | ^24.4.0 | Structured logging |
 | `pydantic` | ^2.0 | Configuration models |
 | `pydantic-settings` | ^2.0 | Settings loading |
@@ -34,9 +34,9 @@ events/
  └── journal.py          → event_types, sqlalchemy (async via to_thread)
 
 broker/
- ├── ibkr_client.py      → app.config.BrokerConfig, events.bus, events.event_types, ib_insync (Any)
- ├── market_data.py      → events.bus, events.event_types, ib_insync (Any)
- ├── order_management.py → events.bus, events.event_types, ib_insync (Any)
+ ├── ibkr_client.py      → app.config.BrokerConfig, events.bus, events.event_types, ib_async (Any)
+ ├── market_data.py      → events.bus, events.event_types, ib_async (Any)
+ ├── order_management.py → events.bus, events.event_types, ib_async (Any)
  └── __init__.py         → task_error_logger helper
 
 risk/
@@ -75,7 +75,7 @@ persistence/
 
 app/
  ├── config.py               → pydantic, yaml
- ├── bootstrap.py            → everything (wires all components), ib_insync.IB
+ ├── bootstrap.py            → everything (wires all components), ib_async.IB
  └── main.py                 → bootstrap.Application
 
 scripts/
@@ -89,7 +89,7 @@ scripts/
 ## Dependency Rules
 
 1. **No circular imports** — module layering: events → strategies/replay → risk/execution/portfolio → monitoring/persistence → app
-2. **IBKR types stay in broker/** — `ib_insync.IB` typed as `Any` and only imported in `broker/` and `bootstrap.py`
+2. **IBKR types stay in broker/** — `ib_async.IB` typed as `Any` and only imported in `broker/` and `bootstrap.py`
 3. **Strategies only import events** — no dependency on risk, execution, broker, or portfolio
 4. **Replay mirrors live dependency structure** — same events, same pipeline; swaps broker and clock implementations
 5. **No async DB** — persistence uses sync SQLAlchemy; EventJournal uses `asyncio.to_thread` for SQLite writes
