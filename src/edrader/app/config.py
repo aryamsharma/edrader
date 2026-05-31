@@ -44,6 +44,7 @@ class AppConfig(BaseModel):
     name: str = "trading-platform"
     environment: Literal["development", "paper", "live"] = "development"
     log_level: str = "DEBUG"
+    log_file: str = ""
     symbols: list[str] = Field(default_factory=list)
     strategies_enabled: bool = True
 

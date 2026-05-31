@@ -142,7 +142,10 @@ class Application:
             await c.stop()
 
     async def startup(self) -> None:
-        setup_logging(self.config.app.log_level)
+        setup_logging(
+            self.config.app.log_level,
+            log_file=self.config.app.log_file,
+        )
         await self.event_bus.start()
 
         env = self.config.app.environment
