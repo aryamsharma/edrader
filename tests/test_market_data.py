@@ -170,9 +170,7 @@ class TestMarketDataFeedRateLimiting:
             await feed.subscribe_symbol("TOOMUCH", expected_tick_rate=60.0)
         assert feed.expected_tick_rate == 960.0
 
-    async def test_duplicate_subscribe_does_not_change_rate(
-        self, feed: MarketDataFeed
-    ) -> None:
+    async def test_duplicate_subscribe_does_not_change_rate(self, feed: MarketDataFeed) -> None:
         await feed.start()
         await feed.subscribe_symbol("AAPL", expected_tick_rate=30.0)
         await feed.subscribe_symbol("AAPL", expected_tick_rate=999.0)

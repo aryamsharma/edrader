@@ -81,11 +81,16 @@ async def main() -> None:
 
     await bus.start()
 
+    # Prime rate baseline
+    bus.metrics.snapshot()
+
     t0 = time.monotonic()
     for ev in events:
         await bus.publish(ev)
     t1 = time.monotonic()
     pub = t1 - t0
+
+    peak = bus.metrics.snapshot()
 
     await bus.drain()
     t2 = time.monotonic()
@@ -99,6 +104,7 @@ async def main() -> None:
     print(f"Publish: {pub:.4f}s  ({n / pub:,.0f} ev/s)")
     print(f"Drain:   {drn:.4f}s  ({n / drn:,.0f} ev/s)")
     print(f"Total:   {pub + drn:.4f}s")
+    print(f"Peak publish_rate: {peak['publish_rate']:.0f} ev/s")
 
     print("\nEvents by type:")
     for t, c in sorted(counts.items()):
