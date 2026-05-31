@@ -182,8 +182,9 @@ class Application:
         await self._start_components(monitoring)
 
         self._wire_journal()
-        self._wire_strategies()
-        await self._start_strategies()
+        if self.config.app.strategies_enabled:
+            self._wire_strategies()
+            await self._start_strategies()
 
         self._running = True
         logger.info(
@@ -201,7 +202,8 @@ class Application:
                 await self._replay_task
             self._replay_task = None
 
-        await self._stop_strategies()
+        if self._strategies:
+            await self._stop_strategies()
 
         for group_key in (MONITORING_COMPONENTS, SIMULATED_COMPONENTS, LIVE_COMPONENTS):
             group = self._components.pop(group_key, None)

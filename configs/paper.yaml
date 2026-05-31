@@ -2,6 +2,7 @@ app:
   name: paper-trader
   environment: paper
   log_level: INFO
+  strategies_enabled: false
   symbols:
     - AAPL
     - SPY
