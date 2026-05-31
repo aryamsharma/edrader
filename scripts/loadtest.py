@@ -34,34 +34,38 @@ async def main() -> None:
 
     bus = EventBus(max_queue_size=1_000_000)
 
-    # Subscriber 1: example strategy (emits SignalGeneratedEvent)
-    sma = SmaCrossoverStrategy("sma", bus, fast_window=5, slow_window=15)
-    await sma.start()
-    print(f"Subscribers: {bus.subscriber_count}")
-
-    # Subscriber 2: risk engine (validates signals -> approved/rejected)
-    risk = RiskEngine(
-        bus, max_position_size=500, max_daily_loss=50_000.0, max_concurrent_positions=50
-    )
-    await risk.start()
-    print(f"Subscribers: {bus.subscriber_count}")
-
-    # Subscriber 3: execution engine (sizing, throttling, order submission)
-    exec_engine = ExecutionEngine(bus, default_order_type="MKT", throttle_delay=0.0, max_retries=0)
-    await exec_engine.start()
-    print(f"Subscribers: {bus.subscriber_count}")
-
-    # Subscriber 4: simulated broker (fills orders, publishes fill events)
+    # Subscriber 1: simulated broker (fills pending orders before strategies see bars)
     broker = SimulatedBroker(bus, slippage_bps=5.0, commission_per_trade=1.50)
     await broker.start()
     print(f"Subscribers: {bus.subscriber_count}")
 
-    # Subscriber 6: position manager (PnL + exposure tracking)
+    # Subscriber 2: position manager (PnL + exposure tracking)
     pm = PositionManager(bus)
     await pm.start()
     print(f"Subscribers: {bus.subscriber_count}")
 
-    # Subscriber 7: metrics engine (performance metrics)
+    # Subscriber 3: risk engine (validates signals -> approved/rejected)
+    risk = RiskEngine(
+        bus,
+        position_manager=pm,
+        max_position_size=500,
+        max_daily_loss=50_000.0,
+        max_concurrent_positions=50,
+    )
+    await risk.start()
+    print(f"Subscribers: {bus.subscriber_count}")
+
+    # Subscriber 4: execution engine (sizing, throttling, order submission)
+    exec_engine = ExecutionEngine(bus, default_order_type="MKT", throttle_delay=0.0, max_retries=0)
+    await exec_engine.start()
+    print(f"Subscribers: {bus.subscriber_count}")
+
+    # Subscriber 5: example strategy (emits SignalGeneratedEvent — broker fills first)
+    sma = SmaCrossoverStrategy("sma", bus, fast_window=5, slow_window=15)
+    await sma.start()
+    print(f"Subscribers: {bus.subscriber_count}")
+
+    # Subscriber 6: metrics engine (performance metrics)
     metrics = MetricsEngine(bus, initial_capital=100_000.0)
     await metrics.start()
     print(f"Subscribers: {bus.subscriber_count}")

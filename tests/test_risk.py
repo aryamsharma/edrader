@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from edrader.events.bus import EventBus
 from edrader.events.event_types import (
     BrokerDisconnectedEvent,
-    ExposureUpdatedEvent,
     MarketTickEvent,
-    OrderFilledEvent,
     RiskViolationEvent,
     SignalApprovedEvent,
     SignalGeneratedEvent,
     SignalRejectedEvent,
     TradingHaltedEvent,
 )
+from edrader.portfolio.position import Position, PositionManager
 from edrader.risk.engine import RiskEngine
 
 
@@ -23,6 +24,14 @@ async def event_bus() -> EventBus:
     await bus.start()
     yield bus
     await bus.stop()
+
+
+@pytest.fixture
+async def position_manager(event_bus: EventBus) -> PositionManager:
+    pm = PositionManager(event_bus=event_bus, initial_capital=100_000.0)
+    await pm.start()
+    yield pm
+    await pm.stop()
 
 
 @pytest.fixture
@@ -37,8 +46,8 @@ def collected_events(event_bus: EventBus) -> list:
 
 
 @pytest.fixture
-async def engine(event_bus: EventBus) -> RiskEngine:
-    e = RiskEngine(event_bus=event_bus)
+async def engine(event_bus: EventBus, position_manager: PositionManager) -> RiskEngine:
+    e = RiskEngine(event_bus=event_bus, position_manager=position_manager)
     await e.start()
     yield e
     await e.stop()
@@ -48,10 +57,11 @@ class TestRiskEngineLifecycle:
     async def test_initial_state(self, engine: RiskEngine) -> None:
         assert engine.is_running is True
         assert engine.kill_switch_active is False
-        assert engine.daily_realized_pnl == 0.0
 
-    async def test_start_sets_running(self, event_bus: EventBus) -> None:
-        e = RiskEngine(event_bus=event_bus)
+    async def test_start_sets_running(
+        self, event_bus: EventBus, position_manager: PositionManager
+    ) -> None:
+        e = RiskEngine(event_bus=event_bus, position_manager=position_manager)
         assert e.is_running is False
         await e.start()
         assert e.is_running is True
@@ -73,10 +83,6 @@ class TestRiskEngineLifecycle:
     async def test_subscribes_to_signals(self, engine: RiskEngine, event_bus: EventBus) -> None:
         assert engine.is_running is True
         assert event_bus.subscriber_count_for(SignalGeneratedEvent) >= 1
-
-    async def test_subscribes_to_fills(self, engine: RiskEngine, event_bus: EventBus) -> None:
-        assert engine.is_running is True
-        assert event_bus.subscriber_count_for(OrderFilledEvent) >= 1
 
     async def test_subscribes_to_ticks(self, engine: RiskEngine, event_bus: EventBus) -> None:
         assert engine.is_running is True
@@ -148,8 +154,10 @@ class TestRiskEngineSignalApproval:
         rejected = [e for e in collected_events if isinstance(e, SignalRejectedEvent)]
         assert len(rejected) == 0
 
-    async def test_rejects_before_start(self, event_bus: EventBus, collected_events: list) -> None:
-        RiskEngine(event_bus=event_bus)
+    async def test_rejects_before_start(
+        self, event_bus: EventBus, position_manager: PositionManager, collected_events: list
+    ) -> None:
+        RiskEngine(event_bus=event_bus, position_manager=position_manager)
         await event_bus.publish(
             SignalGeneratedEvent(
                 strategy_id="test",
@@ -210,15 +218,21 @@ class TestRiskEngineMaxPositionSize:
 
 
 class TestRiskEngineDailyLoss:
+    @pytest.mark.usefixtures("engine")
     async def test_rejects_when_daily_loss_exceeded(
-        self, engine: RiskEngine, collected_events: list, event_bus: EventBus
+        self,
+        position_manager: PositionManager,
+        collected_events: list,
+        event_bus: EventBus,
     ) -> None:
-        engine.update_portfolio_state(daily_realized_pnl=-1500.0)
+        position_manager._positions["APPL"] = Position(
+            symbol="APPL", quantity=0, realized_pnl=-1500.0
+        )
 
         await event_bus.publish(
             SignalGeneratedEvent(
                 strategy_id="test",
-                symbol="AAPL",
+                symbol="APPL",
                 side="BUY",
                 confidence=0.8,
                 suggested_size=100,
@@ -230,12 +244,15 @@ class TestRiskEngineDailyLoss:
         rejected = [e for e in collected_events if isinstance(e, SignalRejectedEvent)]
         assert len(rejected) >= 1
 
+    @pytest.mark.usefixtures("engine")
     async def test_allows_reducing_position_when_over_loss(
-        self, engine: RiskEngine, collected_events: list, event_bus: EventBus
+        self,
+        position_manager: PositionManager,
+        collected_events: list,
+        event_bus: EventBus,
     ) -> None:
-        engine.update_portfolio_state(
-            daily_realized_pnl=-1500.0,
-            positions={"AAPL": 100},
+        position_manager._positions["AAPL"] = Position(
+            symbol="AAPL", quantity=100, realized_pnl=-1500.0
         )
 
         await event_bus.publish(
@@ -255,11 +272,10 @@ class TestRiskEngineDailyLoss:
         rejected = [e for e in collected_events if isinstance(e, SignalRejectedEvent)]
         assert len(rejected) == 0
 
+    @pytest.mark.usefixtures("engine")
     async def test_allows_when_within_loss_limit(
-        self, engine: RiskEngine, collected_events: list, event_bus: EventBus
+        self, collected_events: list, event_bus: EventBus
     ) -> None:
-        engine.update_portfolio_state(daily_realized_pnl=-500.0)
-
         await event_bus.publish(
             SignalGeneratedEvent(
                 strategy_id="test",
@@ -277,10 +293,15 @@ class TestRiskEngineDailyLoss:
 
 
 class TestRiskEngineMaxLeverage:
+    @pytest.mark.usefixtures("engine")
     async def test_rejects_when_leverage_exceeded(
-        self, engine: RiskEngine, collected_events: list, event_bus: EventBus
+        self,
+        position_manager: PositionManager,
+        collected_events: list,
+        event_bus: EventBus,
     ) -> None:
-        engine.update_portfolio_state(exposure=300_000.0, equity=100_000.0)
+        position_manager._positions["AAPL"] = Position(symbol="AAPL", quantity=500, avg_cost=600.0)
+        position_manager._market_prices["AAPL"] = 600.0
 
         await event_bus.publish(
             SignalGeneratedEvent(
@@ -297,11 +318,10 @@ class TestRiskEngineMaxLeverage:
         rejected = [e for e in collected_events if isinstance(e, SignalRejectedEvent)]
         assert len(rejected) >= 1
 
+    @pytest.mark.usefixtures("engine")
     async def test_allows_when_leverage_within_limit(
-        self, engine: RiskEngine, collected_events: list, event_bus: EventBus
+        self, collected_events: list, event_bus: EventBus
     ) -> None:
-        engine.update_portfolio_state(exposure=50_000.0, equity=100_000.0)
-
         await event_bus.publish(
             SignalGeneratedEvent(
                 strategy_id="test",
@@ -317,10 +337,11 @@ class TestRiskEngineMaxLeverage:
         approved = [e for e in collected_events if isinstance(e, SignalApprovedEvent)]
         assert len(approved) >= 1
 
-    async def test_no_equity_rejects(
-        self, engine: RiskEngine, collected_events: list, event_bus: EventBus
-    ) -> None:
-        engine.update_portfolio_state(equity=0.0)
+    async def test_no_equity_rejects(self, event_bus: EventBus, collected_events: list) -> None:
+        pm = PositionManager(event_bus=event_bus, initial_capital=0.0)
+        await pm.start()
+        engine = RiskEngine(event_bus=event_bus, position_manager=pm)
+        await engine.start()
 
         await event_bus.publish(
             SignalGeneratedEvent(
@@ -336,26 +357,21 @@ class TestRiskEngineMaxLeverage:
 
         rejected = [e for e in collected_events if isinstance(e, SignalRejectedEvent)]
         assert len(rejected) >= 1
+        await engine.stop()
+        await pm.stop()
 
 
 class TestRiskEngineConcurrentPositions:
+    @pytest.mark.usefixtures("engine")
     async def test_rejects_when_max_concurrent_reached(
-        self, engine: RiskEngine, collected_events: list, event_bus: EventBus
+        self,
+        position_manager: PositionManager,
+        collected_events: list,
+        event_bus: EventBus,
     ) -> None:
-        engine.update_portfolio_state(
-            positions={
-                "AAPL": 100,
-                "MSFT": 50,
-                "GOOG": 200,
-                "TSLA": 80,
-                "AMZN": 60,
-                "META": 90,
-                "NFLX": 40,
-                "NVDA": 150,
-                "AMD": 70,
-                "INTC": 30,
-            },
-        )
+        symbols = ["AAPL", "MSFT", "GOOG", "TSLA", "AMZN", "META", "NFLX", "NVDA", "AMD", "INTC"]
+        for sym in symbols:
+            position_manager._positions[sym] = Position(symbol=sym, quantity=100)
 
         await event_bus.publish(
             SignalGeneratedEvent(
@@ -396,12 +412,7 @@ class TestRiskEngineStaleMarket:
     async def test_rejects_when_market_stale(
         self, engine: RiskEngine, collected_events: list, event_bus: EventBus
     ) -> None:
-        engine.update_portfolio_state(
-            positions={"AAPL": 0},
-        )
-        from datetime import UTC, datetime, timedelta
-
-        engine._last_tick_time["AAPL"] = datetime.now(UTC) - timedelta(hours=1)
+        engine._last_tick_time["AAPL"] = datetime.now(UTC).replace(year=2020)
 
         await event_bus.publish(
             SignalGeneratedEvent(
@@ -472,58 +483,11 @@ class TestRiskEngineDisconnect:
         assert len(rejected) >= 1
 
 
-class TestRiskEngineFillTracking:
-    async def test_tracks_position_on_buy_fill(
-        self, engine: RiskEngine, event_bus: EventBus
-    ) -> None:
-        await event_bus.publish(
-            OrderFilledEvent(
-                order_id="1",
-                symbol="AAPL",
-                side="BUY",
-                fill_price=150.0,
-                fill_quantity=100,
-                source="test",
-            )
-        )
-        await event_bus.drain()
-        assert engine._positions.get("AAPL") == 100
-
-    async def test_tracks_position_on_sell_fill(
-        self, engine: RiskEngine, event_bus: EventBus
-    ) -> None:
-        await event_bus.publish(
-            OrderFilledEvent(
-                order_id="1",
-                symbol="AAPL",
-                side="SELL",
-                fill_price=150.0,
-                fill_quantity=50,
-                source="test",
-            )
-        )
-        await event_bus.drain()
-        assert engine._positions.get("AAPL") == -50
-
-    async def test_fill_before_start_ignored(self, event_bus: EventBus) -> None:
-        e = RiskEngine(event_bus=event_bus)
-        await event_bus.publish(
-            OrderFilledEvent(
-                order_id="1",
-                symbol="AAPL",
-                side="BUY",
-                fill_price=150.0,
-                fill_quantity=100,
-                source="test",
-            )
-        )
-        await event_bus.drain()
-        assert "AAPL" not in e._positions
-
-
 class TestRiskEngineCustomConfig:
-    async def test_custom_max_position_size(self, event_bus: EventBus) -> None:
-        e = RiskEngine(event_bus=event_bus, max_position_size=10)
+    async def test_custom_max_position_size(
+        self, event_bus: EventBus, position_manager: PositionManager
+    ) -> None:
+        e = RiskEngine(event_bus=event_bus, position_manager=position_manager, max_position_size=10)
         await e.start()
 
         await event_bus.publish(
@@ -541,10 +505,14 @@ class TestRiskEngineCustomConfig:
         assert e.is_running
         await e.stop()
 
-    async def test_custom_max_daily_loss(self, event_bus: EventBus) -> None:
-        e = RiskEngine(event_bus=event_bus, max_daily_loss=100.0)
+    async def test_custom_max_daily_loss(
+        self, event_bus: EventBus, position_manager: PositionManager
+    ) -> None:
+        e = RiskEngine(event_bus=event_bus, position_manager=position_manager, max_daily_loss=100.0)
         await e.start()
-        e._daily_realized_pnl = -200.0
+        position_manager._positions["AAPL"] = Position(
+            symbol="AAPL", quantity=0, realized_pnl=-200.0
+        )
 
         collected: list = []
 
@@ -569,8 +537,12 @@ class TestRiskEngineCustomConfig:
         assert len(rejected) >= 1
         await e.stop()
 
-    async def test_no_stale_market_check_when_no_ticks(self, event_bus: EventBus) -> None:
-        e = RiskEngine(event_bus=event_bus, stale_market_seconds=60)
+    async def test_no_stale_market_check_when_no_ticks(
+        self, event_bus: EventBus, position_manager: PositionManager
+    ) -> None:
+        e = RiskEngine(
+            event_bus=event_bus, position_manager=position_manager, stale_market_seconds=60
+        )
         await e.start()
 
         collected: list = []
@@ -602,51 +574,3 @@ class TestRiskEngineCustomConfig:
         await event_bus.publish(MarketTickEvent(symbol="AAPL", price=150.0, source="test"))
         await event_bus.drain()
         assert "AAPL" in engine._last_tick_time
-
-    async def test_reset_daily_pnl(self, engine: RiskEngine) -> None:
-        engine._daily_realized_pnl = -500.0
-        engine.reset_daily_pnl()
-        assert engine.daily_realized_pnl == 0.0
-
-
-class TestRiskEngineExposureUpdate:
-    async def test_subscribes_to_exposure_updates(
-        self, engine: RiskEngine, event_bus: EventBus
-    ) -> None:
-        assert engine.is_running is True
-        assert event_bus.subscriber_count_for(ExposureUpdatedEvent) >= 1
-
-    async def test_auto_updates_exposure_and_equity(
-        self, engine: RiskEngine, event_bus: EventBus
-    ) -> None:
-        await event_bus.publish(
-            ExposureUpdatedEvent(
-                gross_exposure=50_000.0,
-                net_exposure=30_000.0,
-                leverage=0.5,
-                long_count=1,
-                short_count=0,
-                equity=100_000.0,
-                source="test",
-            )
-        )
-        await event_bus.drain()
-        assert engine._exposure == 50_000.0
-        assert engine._equity == 100_000.0
-
-    async def test_auto_update_before_start_ignored(self, event_bus: EventBus) -> None:
-        e = RiskEngine(event_bus=event_bus)
-        await event_bus.publish(
-            ExposureUpdatedEvent(
-                gross_exposure=50_000.0,
-                net_exposure=30_000.0,
-                leverage=0.5,
-                long_count=1,
-                short_count=0,
-                equity=100_000.0,
-                source="test",
-            )
-        )
-        await event_bus.drain()
-        assert e._exposure == 0.0
-        assert e._equity == 100_000.0

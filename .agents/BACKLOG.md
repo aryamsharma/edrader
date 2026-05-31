@@ -31,7 +31,9 @@ Implement an optional alternative `PriorityQueue` using `asyncio.PriorityQueue` 
 - `src/edrader/events/bus.py:37` — current `PriorityQueue` implementation
 - The 8.4× backtest speedup (22s vs 184s) relies partly on the fast-path `get_nowait()`
 
-## Stale state in async dispatch (RiskEngine false approvals)
+## Stale state in async dispatch (RiskEngine false approvals) — RESOLVED
+
+**Status**: Implemented Option C (RiskEngine queries PositionManager directly) + subscriber ordering fix (broker registered before strategies for BarCloseEvent).
 
 **Observed**: Async-mode benchmark approved 481 signals that sync-mode correctly rejected (SignalRejectedEvent + RiskViolationEvent). Sync is the only correct mode for backtesting.
 
@@ -42,38 +44,24 @@ BarCloseEvent → Strategy → SignalGeneratedEvent
     → ExecutionEngine → OrderRequestedEvent
       → SimulatedBroker → OrderFilledEvent
         → PositionManager → ExposureUpdatedEvent
-          → RiskEngine._on_exposure_update() (state updated)
 ```
 
-In sync mode, this completes before the next bar. In async mode, all events share the same FIFO queue (all `priority=NORMAL`). When events are published faster than they're drained, the queue fills with BarCloseEvents ahead of downstream events. RiskEngine sees `self._positions = {}`, `self._exposure = 0` for every signal because the fill events that update its cache are queued behind thousands of other events.
+In sync mode, this completes before the next bar. In async mode, all events share the same FIFO queue (all `priority=NORMAL`). When events are published faster than they're drained, the queue fills with BarCloseEvents ahead of downstream events.
 
-**Live trading risk**: A tick-frequency strategy can generate signals faster than the IBKR round-trip (10-100ms). If ticks arrive at 250ms intervals, 1-4 ticks can arrive during the fill window, each potentially generating a signal that sees stale state. Bar-frequency strategies are not at risk (bars arrive at 1-60s intervals; cascade completes in microseconds).
+**Fix — two parts:**
 
-### Mitigation Options
+1. **Option C: RiskEngine queries PositionManager directly** — `RiskEngine.__init__()` now takes a `PositionManager` reference. On `_on_signal`, calls `pm.positions`, `pm.equity`, `pm.leverage`, `pm.total_realized_pnl` instead of cached values. Removed `_positions`, `_exposure`, `_equity`, `_daily_realized_pnl` caches and their subscribers (`_on_fill`, `_on_exposure_update`).
 
-**Option A: Symbol-level lock in RiskEngine** (~20 lines, `src/edrader/risk/engine.py`)
-- Track `_pending_symbols: set[str]` in RiskEngine
-- On approval: `_pending_symbols.add(event.symbol)`
-- On fill: `_pending_symbols.discard(event.symbol)`
-- New signal for a pending symbol → reject with `"pending_order"`
-- Conservative: blocks second entry until first clears
-- May conflict with position-adding strategies (but `_check_concurrent_positions` already passes for held symbols)
+2. **Subscriber ordering** — SimulatedBroker registers its `BarCloseEvent` handler before strategies, so pending orders from the previous bar are filled before the next bar triggers a signal. Fixed in `scripts/compare_sync_async.py` and `scripts/loadtest.py` (already correct in `scripts/backtest.py` and `src/edrader/app/bootstrap.py`).
 
-**Option B: Priority re-ordering** (`src/edrader/events/event_types.py`, `src/edrader/events/bus.py`)
-- Give `OrderFilledEvent`, `ExposureUpdatedEvent` HIGH priority
-- They'd jump ahead of NORMAL-priority `SignalGeneratedEvents` in the dual-queue PriorityQueue
-- Reduces the window but doesn't eliminate it — a signal emitted *during* the IBKR gap still precedes its fill
+**Remaining limitation**: Under firehose publishing (140k events published back-to-back), async mode still shows discrepancies because the broker's BarCloseEvent handler is queued behind the strategy's signal cascade. This is a backtest-only artifact — live trading has wall-clock spacing between bars, so the queue always drains between events.
 
-**Option C: Query PositionManager directly**
-- `RiskEngine.__init__()` takes optional `PositionManager` ref
-- On `_on_signal`, call `pm.positions`, `pm.equity`, `pm.exposure()`, `pm.total_realized_pnl` instead of cached values
-- Doesn't fully solve staleness (PositionManager also updates from the event queue), but removes one layer of caching
-- Worth doing even alongside Option A (belt-and-suspenders)
+**Live trading risk**: Resolved for bar-frequency strategies. Tick-frequency strategies still have a stale-state window during the IBKR round-trip (10-100ms), but this is a fundamental limitation of the event-driven architecture, not a caching bug.
 
 ### Files
-- `src/edrader/risk/engine.py` — RiskEngine with `_positions`, `_exposure`, `_equity` caches (lines 46-48)
-- `src/edrader/portfolio/position.py` — PositionManager with fresh state via `positions` (line 62), `equity` (line 80), `exposure()` (line 83)
-- `scripts/compare_sync_async.py` — benchmark reproducing the stale-state issue
+- `src/edrader/risk/engine.py` — RiskEngine now queries PositionManager directly (no cached state)
+- `src/edrader/portfolio/position.py` — PositionManager provides live state via `positions`, `equity`, `exposure()`, `total_realized_pnl`
+- `scripts/compare_sync_async.py` — benchmark reproducing the stale-state issue (subscriber order fixed)
 
 ## SBE for inter-service messaging
 

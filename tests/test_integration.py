@@ -49,10 +49,10 @@ class TestSignalToFillPipeline:
     async def test_signal_through_risk_to_execution_to_broker(
         self, event_bus: EventBus, collected_events: list[object]
     ) -> None:
-        risk = RiskEngine(event_bus=event_bus)
+        pm = PositionManager(event_bus=event_bus)
+        risk = RiskEngine(event_bus=event_bus, position_manager=pm)
         exec_eng = ExecutionEngine(event_bus=event_bus, throttle_delay=0.0)
         broker = SimulatedBroker(event_bus=event_bus)
-        pm = PositionManager(event_bus=event_bus)
 
         await risk.start()
         await exec_eng.start()
@@ -108,8 +108,10 @@ class TestSignalToFillPipeline:
     async def test_signal_to_fill_with_rejected_signal(
         self, event_bus: EventBus, collected_events: list[object]
     ) -> None:
-        risk = RiskEngine(event_bus=event_bus, max_position_size=10)
+        pm = PositionManager(event_bus=event_bus)
+        risk = RiskEngine(event_bus=event_bus, position_manager=pm, max_position_size=10)
         await risk.start()
+        await pm.start()
 
         await event_bus.publish(
             SignalGeneratedEvent(
@@ -130,6 +132,7 @@ class TestSignalToFillPipeline:
         assert len(rejected) >= 1
 
         await risk.stop()
+        await pm.stop()
 
 
 class TestFullPipelineWithMetrics:

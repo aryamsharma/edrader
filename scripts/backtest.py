@@ -68,12 +68,16 @@ async def run_backtest(
     for strat in strategies:
         loader.register(strat.strategy_id, type(strat))
 
+    pm = PositionManager(bus)
     risk = RiskEngine(
-        bus, max_position_size=500, max_daily_loss=50_000.0, max_concurrent_positions=50
+        bus,
+        position_manager=pm,
+        max_position_size=500,
+        max_daily_loss=50_000.0,
+        max_concurrent_positions=50,
     )
     exec_engine = ExecutionEngine(bus, default_order_type="MKT", throttle_delay=0.0, max_retries=0)
     broker = SimulatedBroker(bus, slippage_bps=5.0, commission_per_trade=1.50)
-    pm = PositionManager(bus)
     metrics = MetricsEngine(bus, initial_capital=100_000.0)
 
     for component in [risk, exec_engine, broker, pm, metrics]:

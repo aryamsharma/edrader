@@ -7,9 +7,7 @@ from edrader.events.bus import EventBus
 from edrader.events.event_types import (
     BaseEvent,
     BrokerDisconnectedEvent,
-    ExposureUpdatedEvent,
     MarketTickEvent,
-    OrderFilledEvent,
     RiskViolationEvent,
     SignalApprovedEvent,
     SignalGeneratedEvent,
@@ -17,6 +15,7 @@ from edrader.events.event_types import (
     TradingHaltedEvent,
 )
 from edrader.monitoring.logging import get_logger
+from edrader.portfolio.position import PositionManager
 
 logger = get_logger(__name__)
 
@@ -25,6 +24,7 @@ class RiskEngine:
     def __init__(
         self,
         event_bus: EventBus,
+        position_manager: PositionManager,
         max_position_size: int = 100,
         max_daily_loss: float = 1000.0,
         max_leverage: float = 2.0,
@@ -33,6 +33,7 @@ class RiskEngine:
         stale_market_seconds: float = 300.0,
     ) -> None:
         self._event_bus = event_bus
+        self._pm = position_manager
         self._max_position_size = max_position_size
         self._max_daily_loss = max_daily_loss
         self._max_leverage = max_leverage
@@ -41,16 +42,10 @@ class RiskEngine:
         self._stale_market_seconds = stale_market_seconds
         self._running = False
         self._kill_switch = False
-        self._daily_realized_pnl: float = 0.0
         self._last_tick_time: dict[str, datetime] = {}
-        self._positions: dict[str, int] = {}
-        self._exposure: float = 0.0
-        self._equity: float = 100_000.0
         self._signal_unsub: Any = None
-        self._fill_unsub: Any = None
         self._tick_unsub: Any = None
         self._disconnect_unsub: Any = None
-        self._exposure_unsub: Any = None
 
     @property
     def is_running(self) -> bool:
@@ -60,19 +55,13 @@ class RiskEngine:
     def kill_switch_active(self) -> bool:
         return self._kill_switch
 
-    @property
-    def daily_realized_pnl(self) -> float:
-        return self._daily_realized_pnl
-
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
         self._signal_unsub = await self._subscribe_signals()
-        self._fill_unsub = await self._subscribe_fills()
         self._tick_unsub = await self._subscribe_ticks()
         self._disconnect_unsub = await self._subscribe_disconnects()
-        self._exposure_unsub = await self._subscribe_exposure()
         logger.info("risk_engine_started")
 
     async def stop(self) -> None:
@@ -81,18 +70,14 @@ class RiskEngine:
         self._running = False
         for unsub in (
             self._signal_unsub,
-            self._fill_unsub,
             self._tick_unsub,
             self._disconnect_unsub,
-            self._exposure_unsub,
         ):
             if unsub is not None:
                 unsub()
         self._signal_unsub = None
-        self._fill_unsub = None
         self._tick_unsub = None
         self._disconnect_unsub = None
-        self._exposure_unsub = None
         logger.info("risk_engine_stopped")
 
     def activate_kill_switch(self) -> None:
@@ -102,26 +87,6 @@ class RiskEngine:
     def deactivate_kill_switch(self) -> None:
         self._kill_switch = False
         logger.info("kill_switch_deactivated")
-
-    def update_portfolio_state(
-        self,
-        positions: dict[str, int] | None = None,
-        exposure: float | None = None,
-        equity: float | None = None,
-        daily_realized_pnl: float | None = None,
-    ) -> None:
-        if positions is not None:
-            self._positions = positions
-        if exposure is not None:
-            self._exposure = exposure
-        if equity is not None:
-            self._equity = equity
-        if daily_realized_pnl is not None:
-            self._daily_realized_pnl = daily_realized_pnl
-
-    def reset_daily_pnl(self) -> None:
-        self._daily_realized_pnl = 0.0
-        logger.info("daily_pnl_reset")
 
     async def _on_signal(self, event: BaseEvent) -> None:
         assert isinstance(event, SignalGeneratedEvent)
@@ -156,30 +121,11 @@ class RiskEngine:
 
         await self._approve(event)
 
-    async def _on_fill(self, event: BaseEvent) -> None:
-        assert isinstance(event, OrderFilledEvent)
-        if not self._running:
-            return
-
-        pos = self._positions
-        sym = event.symbol
-        if event.side == "BUY":
-            pos[sym] = pos.get(sym, 0) + event.fill_quantity
-        elif event.side == "SELL":
-            pos[sym] = pos.get(sym, 0) - event.fill_quantity
-
     async def _on_tick(self, event: BaseEvent) -> None:
         assert isinstance(event, MarketTickEvent)
         if not self._running:
             return
         self._last_tick_time[event.symbol] = event.timestamp
-
-    async def _on_exposure_update(self, event: BaseEvent) -> None:
-        assert isinstance(event, ExposureUpdatedEvent)
-        if not self._running:
-            return
-        self._exposure = event.gross_exposure
-        self._equity = event.equity
 
     async def _on_disconnect(self, event: BaseEvent) -> None:
         assert isinstance(event, BrokerDisconnectedEvent)
@@ -197,32 +143,36 @@ class RiskEngine:
         return None
 
     def _check_daily_loss(self, event: SignalGeneratedEvent) -> str | None:
-        current_pos = self._positions.get(event.symbol, 0)
-        is_reducing = (current_pos > 0 and event.side == "SELL") or (
-            current_pos < 0 and event.side == "BUY"
+        pos = self._pm.positions.get(event.symbol)
+        current_qty = pos.quantity if pos else 0
+        is_reducing = (current_qty > 0 and event.side == "SELL") or (
+            current_qty < 0 and event.side == "BUY"
         )
 
         if is_reducing:
             return None
 
-        if abs(self._daily_realized_pnl) >= self._max_daily_loss:
-            return f"daily_loss_limit_reached: {self._daily_realized_pnl}"
+        daily_loss = self._pm.total_realized_pnl
+        if abs(daily_loss) >= self._max_daily_loss:
+            return f"daily_loss_limit_reached: {daily_loss}"
         return None
 
     def _check_leverage(self, event: SignalGeneratedEvent) -> str | None:  # noqa: ARG002
-        if self._equity <= 0:
+        eq = self._pm.equity
+        if eq <= 0:
             return "no_equity"
-        current_leverage = self._exposure / self._equity
-        if current_leverage >= self._max_leverage:
-            return f"leverage {current_leverage:.2f} exceeds max {self._max_leverage}"
+        if self._pm.leverage >= self._max_leverage:
+            return f"leverage {self._pm.leverage:.2f} exceeds max {self._max_leverage}"
         return None
 
     def _check_symbol_exposure(self, event: SignalGeneratedEvent) -> str | None:  # noqa: ARG002
         return None
 
     def _check_concurrent_positions(self, event: SignalGeneratedEvent) -> str | None:
-        non_zero = sum(1 for qty in self._positions.values() if qty != 0)
-        if event.symbol in self._positions and self._positions[event.symbol] != 0:
+        positions = self._pm.positions
+        non_zero = sum(1 for p in positions.values() if p.quantity != 0)
+        pos = positions.get(event.symbol)
+        if pos is not None and pos.quantity != 0:
             return None
         if non_zero >= self._max_concurrent_positions:
             return f"concurrent_positions {non_zero} exceeds max {self._max_concurrent_positions}"
@@ -279,13 +229,6 @@ class RiskEngine:
         self._event_bus.subscribe(SignalGeneratedEvent, handler, name="risk_engine_signal")
         return lambda: self._event_bus.unsubscribe(SignalGeneratedEvent, handler)
 
-    async def _subscribe_fills(self) -> Any:
-        async def handler(event: BaseEvent) -> None:
-            await self._on_fill(event)
-
-        self._event_bus.subscribe(OrderFilledEvent, handler, name="risk_engine_fill")
-        return lambda: self._event_bus.unsubscribe(OrderFilledEvent, handler)
-
     async def _subscribe_ticks(self) -> Any:
         async def handler(event: BaseEvent) -> None:
             await self._on_tick(event)
@@ -299,10 +242,3 @@ class RiskEngine:
 
         self._event_bus.subscribe(BrokerDisconnectedEvent, handler, name="risk_engine_disconnect")
         return lambda: self._event_bus.unsubscribe(BrokerDisconnectedEvent, handler)
-
-    async def _subscribe_exposure(self) -> Any:
-        async def handler(event: BaseEvent) -> None:
-            await self._on_exposure_update(event)
-
-        self._event_bus.subscribe(ExposureUpdatedEvent, handler, name="risk_engine_exposure")
-        return lambda: self._event_bus.unsubscribe(ExposureUpdatedEvent, handler)

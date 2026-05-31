@@ -25,17 +25,24 @@ from edrader.strategies.examples.sma_crossover import SmaCrossoverStrategy
 def _counter(counts: dict[str, int]):
     async def count(event: BaseEvent) -> None:
         counts[type(event).__name__] = counts.get(type(event).__name__, 0) + 1
+
     return count
 
 
 def build_pipeline(bus: EventBus) -> list:
-    sma = SmaCrossoverStrategy("sma", bus, fast_window=5, slow_window=15)
-    risk = RiskEngine(bus, max_position_size=500, max_daily_loss=50_000.0, max_concurrent_positions=50)
+    pm = PositionManager(bus)
+    risk = RiskEngine(
+        bus,
+        position_manager=pm,
+        max_position_size=500,
+        max_daily_loss=50_000.0,
+        max_concurrent_positions=50,
+    )
     exec_engine = ExecutionEngine(bus, default_order_type="MKT", throttle_delay=0.0, max_retries=0)
     broker = SimulatedBroker(bus, slippage_bps=5.0, commission_per_trade=1.50)
-    pm = PositionManager(bus)
+    sma = SmaCrossoverStrategy("sma", bus, fast_window=5, slow_window=15)
     metrics = MetricsEngine(bus, initial_capital=100_000.0)
-    return [sma, risk, exec_engine, broker, pm, metrics]
+    return [pm, risk, exec_engine, broker, sma, metrics]
 
 
 async def start_all(components: list) -> None:
@@ -119,7 +126,11 @@ async def main() -> None:
     result_async = await run_async(events)
     print(f"  Published {result_async['published']}, dispatched {result_async['dispatched']}")
     print(f"  Publish: {result_async['publish']:.6f}s  ({n / result_async['publish']:,.0f} ev/s)")
-    print(f"  Drain:   {result_async['drain']:.6f}s  ({n / result_async['drain']:,.0f} ev/s)" if result_async['drain'] > 0 else f"  Drain:   N/A")
+    print(
+        f"  Drain:   {result_async['drain']:.6f}s  ({n / result_async['drain']:,.0f} ev/s)"
+        if result_async["drain"] > 0
+        else "  Drain:   N/A"
+    )
     print(f"  Total:   {result_async['total']:.6f}s")
 
     print()
@@ -141,10 +152,16 @@ async def main() -> None:
         print(f"  {t:<30} {a:>8} {s:>8}{marker}")
 
     print()
-    ratio = result_async["total"] / result_sync["total"] if result_sync["total"] > 0 else float("inf")
-    print(f"--- Comparison ---")
-    print(f"  Async total: {result_async['total']:.6f}s  ({result_async['published']} pub / {result_async['dispatched']} disp)")
-    print(f"  Sync total:  {result_sync['total']:.6f}s  ({result_sync['published']} pub / {result_sync['dispatched']} disp)")
+    ratio = (
+        result_async["total"] / result_sync["total"] if result_sync["total"] > 0 else float("inf")
+    )
+    print("--- Comparison ---")
+    at = result_async
+    a_str = f"  Async total: {at['total']:.6f}s  ({at['published']} pub / {at['dispatched']} disp)"
+    st = result_sync
+    s_str = f"  Sync total:  {st['total']:.6f}s  ({st['published']} pub / {st['dispatched']} disp)"
+    print(a_str)
+    print(s_str)
     print(f"  Sync is {ratio:.2f}x {'faster' if ratio > 1 else 'slower'} than async")
 
 

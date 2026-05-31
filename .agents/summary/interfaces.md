@@ -130,7 +130,8 @@ class Strategy(ABC):
 
 ```python
 class RiskEngine:
-    def __init__(self, event_bus: EventBus, max_position_size: int = 100,
+    def __init__(self, event_bus: EventBus, position_manager: PositionManager,
+                 max_position_size: int = 100,
                  max_daily_loss: float = 1000.0, max_leverage: float = 2.0,
                  max_symbol_exposure: float = 50_000.0,
                  max_concurrent_positions: int = 10,
@@ -139,12 +140,8 @@ class RiskEngine:
     async def stop(self) -> None
     def activate_kill_switch(self) -> None
     def deactivate_kill_switch(self) -> None
-    def update_portfolio_state(self, positions=None, exposure=None,
-                               equity=None, daily_realized_pnl=None) -> None
-    def reset_daily_pnl(self) -> None
     @property def is_running(self) -> bool
     @property def kill_switch_active(self) -> bool
-    @property def daily_realized_pnl(self) -> float
 ```
 
 ## ExecutionEngine (`src/edrader/execution/engine.py`)

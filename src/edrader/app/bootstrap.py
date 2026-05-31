@@ -90,13 +90,13 @@ class Application:
             self._replay_task = asyncio.create_task(replay.run())
 
     def _build_monitoring_components(self) -> list[Any]:
-        risk = RiskEngine(event_bus=self.event_bus)
+        pm = PositionManager(event_bus=self.event_bus)
+        risk = RiskEngine(event_bus=self.event_bus, position_manager=pm)
         exec_eng = ExecutionEngine(
             event_bus=self.event_bus,
             default_order_type=self.config.execution.default_order_type,
             throttle_delay=self.config.execution.throttle_delay,
         )
-        pm = PositionManager(event_bus=self.event_bus)
         metrics = MetricsCollector(event_bus=self.event_bus)
         alerts = AlertManager(event_bus=self.event_bus)
         return [risk, exec_eng, pm, metrics, alerts]
