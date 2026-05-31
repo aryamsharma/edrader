@@ -151,6 +151,26 @@ class Application:
             live = self._build_live_components()
             self._components[LIVE_COMPONENTS] = live
             await self._start_components(live)
+
+            feed = live[1]
+            for symbol in self.config.app.symbols:
+                await feed.subscribe_symbol(symbol)
+
+            from edrader.events.event_types import MarketTickEvent
+
+            async def log_tick(ev: BaseEvent) -> None:
+                if isinstance(ev, MarketTickEvent):
+                    logger.info(
+                        "market_tick",
+                        symbol=ev.symbol,
+                        price=ev.price,
+                        volume=ev.volume,
+                        bid=ev.bid,
+                        ask=ev.ask,
+                    )
+
+            if self.config.app.symbols:
+                self.event_bus.subscribe(MarketTickEvent, log_tick, name="tick_logger")
         else:
             sim = self._build_simulated_components()
             self._components[SIMULATED_COMPONENTS] = sim

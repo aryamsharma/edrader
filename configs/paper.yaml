@@ -1,0 +1,38 @@
+app:
+  name: paper-trader
+  environment: paper
+  log_level: INFO
+  symbols:
+    - AAPL
+    - SPY
+    - MSFT
+
+broker:
+  host: 127.0.0.1
+  port: 7497
+  client_id: 1
+  connect_timeout: 30
+  reconnect_interval: 5.0
+  max_reconnect_attempts: 10
+
+risk:
+  max_daily_loss: 1000.0
+  max_position_size: 100
+  max_leverage: 2.0
+  max_symbol_exposure: 50000.0
+  max_concurrent_positions: 10
+
+persistence:
+  database_url: sqlite:///data/trading.db
+  echo: false
+
+monitoring:
+  metrics_enabled: true
+  metrics_port: 9090
+
+execution:
+  sizing_method: fixed
+  percent_equity_fraction: 0.02
+  default_order_type: MKT
+  max_retries: 3
+  throttle_delay: 0.5

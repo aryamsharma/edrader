@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import signal
 from pathlib import Path
@@ -6,7 +7,17 @@ from edrader.app.bootstrap import Application
 
 
 async def main() -> None:
-    config_path = Path("configs/default.yaml")
+    parser = argparse.ArgumentParser(description="Run the trading platform")
+    parser.add_argument(
+        "--config",
+        "-c",
+        type=Path,
+        default=Path("configs/default.yaml"),
+        help="Path to config YAML (default: configs/default.yaml)",
+    )
+    args = parser.parse_args()
+
+    config_path = args.config.resolve()
     app = Application.from_config_path(config_path)
 
     stop_event = asyncio.Event()
