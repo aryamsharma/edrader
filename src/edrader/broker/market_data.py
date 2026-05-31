@@ -83,6 +83,10 @@ class BarAggregator:
 
 
 class MarketDataFeed:
+    _WARN_RATE = 500.0
+    _CRIT_RATE = 800.0
+    _HARD_LIMIT = 1000.0
+
     def __init__(
         self,
         ib: Any,
@@ -97,6 +101,7 @@ class MarketDataFeed:
         self._aggs: dict[str, BarAggregator] = {}
         self._handler_id: str | None = None
         self._reconnect_unsub: Any = None
+        self._expected_rates: dict[str, float] = {}
 
     @property
     def is_running(self) -> bool:
@@ -105,6 +110,10 @@ class MarketDataFeed:
     @property
     def subscriptions(self) -> list[str]:
         return list(self._subscriptions.keys())
+
+    @property
+    def expected_tick_rate(self) -> float:
+        return sum(self._expected_rates.values())
 
     async def start(self) -> None:
         if self._running:
@@ -134,11 +143,43 @@ class MarketDataFeed:
         currency: str = "USD",
         sec_type: str = "STK",
         bar_size_seconds: float | None = None,
+        expected_tick_rate: float = 20.0,
     ) -> None:
         if not self._running:
             raise RuntimeError("MarketDataFeed is not running")
         if symbol in self._subscriptions:
             return
+
+        new_total = sum(self._expected_rates.values()) + expected_tick_rate
+        if new_total > self._HARD_LIMIT:
+            logger.error(
+                "market_data_rate_limit_exceeded",
+                symbol=symbol,
+                expected_tick_rate=expected_tick_rate,
+                total_rate=new_total,
+                hard_limit=self._HARD_LIMIT,
+            )
+            raise RuntimeError(
+                f"Cannot subscribe {symbol} (rate {expected_tick_rate}/s): "
+                f"total {new_total:.0f}/s exceeds hard limit {self._HARD_LIMIT}/s"
+            )
+        if new_total > self._CRIT_RATE:
+            logger.warning(
+                "market_data_rate_critical",
+                symbol=symbol,
+                expected_tick_rate=expected_tick_rate,
+                total_rate=new_total,
+                crit_threshold=self._CRIT_RATE,
+                hard_limit=self._HARD_LIMIT,
+            )
+        elif new_total > self._WARN_RATE:
+            logger.warning(
+                "market_data_rate_warning",
+                symbol=symbol,
+                expected_tick_rate=expected_tick_rate,
+                total_rate=new_total,
+                warn_threshold=self._WARN_RATE,
+            )
 
         contract = self._make_contract(symbol, exchange, currency, sec_type)
         self._ib.reqMktData(contract)
@@ -146,8 +187,9 @@ class MarketDataFeed:
 
         bs = bar_size_seconds if bar_size_seconds is not None else self._default_bar_size_seconds
         self._aggs[symbol] = BarAggregator(symbol, bar_size_seconds=bs)
+        self._expected_rates[symbol] = expected_tick_rate
 
-        logger.info("market_data_subscribed", symbol=symbol)
+        logger.info("market_data_subscribed", symbol=symbol, expected_tick_rate=expected_tick_rate)
 
     async def subscribe_symbols(
         self,
@@ -156,6 +198,7 @@ class MarketDataFeed:
         currency: str = "USD",
         sec_type: str = "STK",
         bar_size_seconds: float | None = None,
+        expected_tick_rate: float = 20.0,
     ) -> None:
         for symbol in symbols:
             await self.subscribe_symbol(
@@ -164,6 +207,7 @@ class MarketDataFeed:
                 currency=currency,
                 sec_type=sec_type,
                 bar_size_seconds=bar_size_seconds,
+                expected_tick_rate=expected_tick_rate,
             )
 
     async def unsubscribe(self, symbol: str) -> None:
@@ -172,6 +216,7 @@ class MarketDataFeed:
         contract = self._subscriptions.pop(symbol)
         self._ib.cancelMktData(contract)
         self._aggs.pop(symbol, None)
+        self._expected_rates.pop(symbol, None)
         logger.info("market_data_unsubscribed", symbol=symbol)
 
     async def unsubscribe_all(self) -> None:
@@ -261,5 +306,18 @@ class MarketDataFeed:
             self._subscriptions[symbol] = contract
             self._aggs[symbol] = BarAggregator(
                 symbol, bar_size_seconds=self._default_bar_size_seconds
+            )
+        total_rate = sum(self._expected_rates.values())
+        if total_rate > self._CRIT_RATE:
+            logger.warning(
+                "market_data_resubscribed_rate_critical",
+                total_rate=total_rate,
+                crit_threshold=self._CRIT_RATE,
+            )
+        elif total_rate > self._WARN_RATE:
+            logger.warning(
+                "market_data_resubscribed_rate_warning",
+                total_rate=total_rate,
+                warn_threshold=self._WARN_RATE,
             )
         logger.info("market_data_resubscribed", symbols=symbols)

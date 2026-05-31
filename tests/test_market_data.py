@@ -142,6 +142,48 @@ class TestMarketDataFeedSubscribe:
         assert mock_ib.cancelMktData.call_count == 2
 
 
+class TestMarketDataFeedRateLimiting:
+    async def test_default_expected_rate_tracked(self, feed: MarketDataFeed) -> None:
+        await feed.start()
+        await feed.subscribe_symbol("AAPL")
+        assert feed.expected_tick_rate == 20.0
+
+    async def test_custom_expected_rate(self, feed: MarketDataFeed) -> None:
+        await feed.start()
+        await feed.subscribe_symbol("SPY", expected_tick_rate=50.0)
+        await feed.subscribe_symbol("AAPL", expected_tick_rate=30.0)
+        assert feed.expected_tick_rate == 80.0
+
+    async def test_unsubscribe_reduces_rate(self, feed: MarketDataFeed) -> None:
+        await feed.start()
+        await feed.subscribe_symbol("SPY", expected_tick_rate=50.0)
+        await feed.subscribe_symbol("AAPL", expected_tick_rate=30.0)
+        await feed.unsubscribe("SPY")
+        assert feed.expected_tick_rate == 30.0
+
+    async def test_rate_limit_exceeded_raises(self, feed: MarketDataFeed) -> None:
+        await feed.start()
+        for i in range(16):
+            await feed.subscribe_symbol(f"SYM{i}", expected_tick_rate=60.0)
+        assert feed.expected_tick_rate == 960.0
+        with pytest.raises(RuntimeError, match="exceeds hard limit"):
+            await feed.subscribe_symbol("TOOMUCH", expected_tick_rate=60.0)
+        assert feed.expected_tick_rate == 960.0
+
+    async def test_duplicate_subscribe_does_not_change_rate(
+        self, feed: MarketDataFeed
+    ) -> None:
+        await feed.start()
+        await feed.subscribe_symbol("AAPL", expected_tick_rate=30.0)
+        await feed.subscribe_symbol("AAPL", expected_tick_rate=999.0)
+        assert feed.expected_tick_rate == 30.0
+
+    async def test_subscribe_symbols_passes_rate(self, feed: MarketDataFeed) -> None:
+        await feed.start()
+        await feed.subscribe_symbols(["A", "B", "C"], expected_tick_rate=50.0)
+        assert feed.expected_tick_rate == 150.0
+
+
 class TestMarketDataFeedTickHandling:
     async def _process_tickers(self, feed: MarketDataFeed, ticker: MagicMock) -> None:
         await feed._process_tickers([ticker])

@@ -182,6 +182,20 @@ Items below are from a principal engineer performance review, excluding recommen
 - SQLite supports `INSERT ... ON CONFLICT (symbol) DO UPDATE SET ...` which eliminates the round-trip
 - Only matters when a DB is configured (guarded by `if self._db_manager is None: return`)
 
+## EventBus publish_rate metric — rationale and safe upper bound
+
+**Added**: `DispatchMetrics.snapshot()` now includes `publish_rate` (events/sec), computed as the delta between consecutive `snapshot()` calls. Included in `RuntimeSnapshot` via `MetricsCollector.snapshot()`.
+
+**Rationale**: At live tick rates (~200 ev/s for a few liquid symbols), the pipeline drains 40× faster than events arrive. But during bursty periods (e.g., market open, news events, 10+ symbols), the aggregate rate can spike to 1,000+ ticks/sec. Without a rate metric, operators cannot distinguish normal throughput from queue back-pressure.
+
+**Safe upper bound from stale-state analysis**:
+- Pipeline drain rate: ~8,000 ev/s (sync-mode 140k/2.67s ÷ 6.3µs queue overhead). Practical async drain: ~6,000 ev/s.
+- **WARN threshold (500 ev/s)**: Aggregate tick rate exceeds 50% of pipeline capacity. Queue may build during bursts.
+- **CRIT threshold (800 ev/s)**: Queue growth likely during sustained periods. Stale-state window widens.
+- **HARD LIMIT (1,000 ev/s)**: Subscription rejected. At this rate, async pipeline cannot drain fast enough to prevent stale-state violations for tick-frequency strategies.
+
+**Proactive alarming**: `MarketDataFeed.subscribe_symbol()` now accepts an `expected_tick_rate` parameter (default 20/sec, adjust per symbol — e.g., SPY=50, AAPL=30, BRK.B=5). On each `subscribe_symbol()` call, the cumulative expected rate is checked against the thresholds above, and appropriate warnings are logged. At HARD_LIMIT, subscription is refused with `RuntimeError`.
+
 ### Observations (no action required)
 
 - **MeanReversionStrategy._compute_stats O(n)** per bar — fine for current window sizes (20-30). VWAP already uses incremental approach, which is the correct pattern.

@@ -19,6 +19,7 @@ class RuntimeSnapshot:
     queue_depth: int = 0
     subscriber_count: int = 0
     throughput_1m: float = 0.0
+    publish_rate: float = 0.0
     total_published: int = 0
     total_dispatched: int = 0
     total_errors: int = 0
@@ -86,6 +87,7 @@ class MetricsCollector:
             queue_depth=self._event_bus.queue_size,
             subscriber_count=self._event_bus.subscriber_count,
             throughput_1m=throughput,
+            publish_rate=bus_metrics.get("publish_rate", 0.0),
             total_published=self._event_count,
             total_dispatched=bus_metrics["total_dispatched"],
             total_errors=bus_metrics["total_errors"],
