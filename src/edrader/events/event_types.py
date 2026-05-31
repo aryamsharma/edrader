@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-import uuid
+import itertools
+import os
+import socket
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -14,9 +16,18 @@ class EventPriority(Enum):
     CRITICAL = auto()
 
 
+_EVENT_ID_COUNTER = itertools.count()
+_HOSTNAME = socket.gethostname()
+_PID = os.getpid()
+
+
+def _next_event_id() -> str:
+    return f"{_HOSTNAME}-{_PID}-{next(_EVENT_ID_COUNTER)}"
+
+
 @dataclass(frozen=True, slots=True)
 class BaseEvent:
-    event_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
+    event_id: str = field(default_factory=_next_event_id)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     priority: EventPriority = EventPriority.NORMAL
     correlation_id: str = ""

@@ -32,10 +32,11 @@ from edrader.events.event_types import (
 )
 
 
-def test_base_event_generates_uuid() -> None:
+def test_base_event_generates_id() -> None:
     event = BaseEvent()
-    assert len(event.event_id) == 16
+    assert len(event.event_id) > 0
     assert isinstance(event.event_id, str)
+    assert "-" in event.event_id  # hostname-pid-counter format
 
 
 def test_base_event_has_timestamp() -> None:
