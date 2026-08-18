@@ -20,6 +20,12 @@ class BollingerBandsStrategy(Strategy):
         num_std: float = 2.0,
         default_size: int = 100,
     ) -> None:
+        """
+        event_bus: expects BarClose
+        window: int param which defines the lookback period for the algorithm
+        num_std: float param which defines the std deviations size
+        default_size: int param which defines the order size
+        """
         super().__init__(strategy_id, event_bus)
         self._window = window
         self._num_std = num_std
@@ -57,6 +63,8 @@ class BollingerBandsStrategy(Strategy):
         upper = sma + self._num_std * std
         lower = sma - self._num_std * std
 
+        if std < 1e-12: return
+
         if event.close <= lower:
             await self.emit_signal(
                 symbol,
@@ -81,8 +89,11 @@ class BollingerBandsStrategy(Strategy):
     def _compute_std(self, symbol: str) -> float:
         prices = list(self._prices[symbol])
         n = len(prices)
+
         if n == 0:
             return 0.0
+
         mean = sum(prices) / n
-        variance = sum((p - mean) ** 2 for p in prices) / n
+        # Using sample std as it's a subset of the whole dataset 
+        variance = sum((p - mean) ** 2 for p in prices) / (n - 1)
         return math.sqrt(variance)
