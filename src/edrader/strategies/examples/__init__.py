@@ -3,3 +3,4 @@ from edrader.strategies.examples.sma_crossover import SmaCrossoverStrategy  # no
 from edrader.strategies.examples.vwap_reversion import VwapReversionStrategy  # noqa: F401
 
 from edrader.strategies.examples.bollinger_bands import BollingerBandsStrategy  # noqa: F401
+from edrader.strategies.examples.rsi_momentum import RsiMomentumStrategy  # noqa: F401
